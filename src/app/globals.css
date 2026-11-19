@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/*
+ * =============================================================================
+ * SoundMatch design tokens: the single source of truth for colors, radii,
+ * typography, shadows and motion. Tailwind v4 turns every token below into a
+ * utility, e.g. --color-surface → bg-surface / text-surface / border-surface,
+ * --radius-card → rounded-card.
+ *
+ * The app is dark-only. Text/background pairs used in the UI are checked for
+ * WCAG AA contrast by tests/ui/design-tokens.test.ts; add new pairs there.
+ * =============================================================================
+ */
+@theme {
+  /* Surfaces, from page background up to raised elements */
+  --color-canvas: #090a0f;
+  --color-surface: #10121a;
+  --color-surface-raised: #161925;
+  --color-surface-overlay: #1d2130;
+
+  /* Lines */
+  --color-line: #252a3a;
+  --color-line-strong: #363c52;
+  /* Borders of form controls (inputs, sliders, toggles) must reach 3:1 (WCAG 1.4.11). */
+  --color-line-control: #6e7793;
+
+  /* Text */
+  --color-ink: #eef0f7;
+  --color-ink-muted: #a4abc0;
+  --color-ink-subtle: #8a91a8;
+  --color-ink-inverse: #090a0f;
+
+  /* Brand: violet → cyan gradient used sparingly (logo, primary actions, meters) */
+  --color-brand: #8b7bff;
+  --color-brand-strong: #a497ff;
+  --color-brand-2: #22d3ee;
+
+  /* Live listening state: unmistakable, used only while the mic is on */
+  --color-live: #ff5c7a;
+
+  /* Status */
+  --color-success: #3ddc97;
+  --color-warning: #fbbf24;
+  --color-danger: #ff6b6b;
+  --color-info: #60a5fa;
+
+  /* Typography (font variables come from the `geist` package in layout.tsx) */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  /* Radii */
+  --radius-control: 0.625rem; /* buttons, inputs */
+  --radius-card: 1rem;
+  --radius-panel: 1.5rem;
+
+  /* Elevation */
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --shadow-glow: 0 0 0 1px rgb(139 123 255 / 0.35), 0 8px 32px -8px rgb(139 123 255 / 0.45);
+
+  /* Motion: short and calm. Disabled entirely for prefers-reduced-motion (below). */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* One consistent, clearly visible keyboard focus style everywhere. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-strong);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: rgb(139 123 255 / 0.35);
+  }
+}
+
+/* Respect users who ask for less motion: no animations or smooth transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
