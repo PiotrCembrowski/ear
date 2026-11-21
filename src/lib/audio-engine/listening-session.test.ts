@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { concat, mix, silence, sine, syntheticFluteNote, syntheticPianoNote, whiteNoise } from "../../../tests/audio/synthetic";
+import { concat, mix, silence, sine, syntheticFluteNote, syntheticPianoLayer, syntheticPianoNote, whiteNoise } from "../../../tests/audio/synthetic";
 import { ListeningSession, type SessionEvent, type SessionSnapshot } from "./listening-session";
+import { pitchStrategy } from "./strategies/pitch";
+import { timbreStrategy } from "./strategies/timbre";
 
 const SR = 48000;
 const BLOCK = 1024; // roughly what the AudioWorklet delivers (~21 ms at 48 kHz)
@@ -115,5 +117,97 @@ describe("ListeningSession (identify mode)", () => {
     const events = session.flush();
     expect(events).toHaveLength(1);
     expect(events[0]!.type === "note" && events[0]!.reading?.name).toBe("C5");
+  });
+});
+
+describe("ListeningSession (compare and closest modes)", () => {
+  const refSR = 44100;
+  const pianoRef = (midi: number, velocity = 0.6, seed = 11) => {
+    const clip = { samples: syntheticPianoNote(midi, 1.5, refSR, velocity, seed), sampleRate: refSR };
+    return { pitch: pitchStrategy.extract(clip), timbre: timbreStrategy.extract(clip) };
+  };
+
+  it("compares each sound with a pitch reference and finishes early on a ringing note", () => {
+    const session = new ListeningSession(SR);
+    session.setMode({ mode: "compare", reference: pianoRef(69).pitch });
+    const audio = mix(concat(silence(0.5, SR), syntheticPianoNote(69, 4, SR, 0.5, 3), silence(0.6, SR)), hiss(5.1));
+    const { events } = run(session, audio);
+    const results = events.filter((e) => e.type === "comparison");
+    expect(results).toHaveLength(1); // one result per sound, not a second one when it ends
+    const comparison = results[0]!;
+    if (comparison.type !== "comparison") throw new Error("unexpected");
+    expect(comparison.finishedEarly).toBe(true);
+    expect(comparison.durationMs).toBeLessThan(1200);
+    expect(comparison.result.strategyId).toBe("pitch");
+    expect(comparison.result.score).toBeGreaterThan(95);
+  });
+
+  it("scores a different note low", () => {
+    const session = new ListeningSession(SR);
+    session.setMode({ mode: "compare", reference: pianoRef(69).pitch });
+    const { events } = run(session, mix(concat(silence(0.5, SR), syntheticPianoNote(71, 1.5, SR), silence(0.6, SR)), hiss(2.6)));
+    const comparison = events.find((e) => e.type === "comparison");
+    expect(comparison?.type === "comparison" && comparison.result.score).toBe(0);
+  });
+
+  it("waits for the end of the sound with a timbre reference", () => {
+    const session = new ListeningSession(SR);
+    const reference = timbreStrategy.extract({ samples: syntheticPianoNote(60, 1.2, refSR), sampleRate: refSR });
+    session.setMode({ mode: "compare", reference });
+    const { events } = run(session, mix(concat(silence(0.5, SR), syntheticPianoNote(60, 1.2, SR), silence(0.6, SR)), hiss(2.3)));
+    const comparison = events.find((e) => e.type === "comparison");
+    if (comparison?.type !== "comparison") throw new Error("no comparison");
+    expect(comparison.finishedEarly).toBe(false);
+    expect(comparison.result.strategyId).toBe("timbre");
+    expect(comparison.result.score).toBeGreaterThan(75);
+  });
+
+  it("ranks instrument samples and picks the right note, using timbre between velocity layers", () => {
+    const layer = (kind: "soft" | "loud", seed: number) => {
+      const clip = { samples: syntheticPianoLayer(69, 1.5, refSR, kind, seed), sampleRate: refSR };
+      return { pitch: pitchStrategy.extract(clip), timbre: timbreStrategy.extract(clip) };
+    };
+    const soft = layer("soft", 21);
+    const loud = layer("loud", 22);
+    const candidates = [
+      { id: "G#4", ...pianoRef(68) },
+      { id: "A4-soft", ...soft },
+      { id: "A4-loud", ...loud },
+      { id: "A#4", ...pianoRef(70) },
+      { id: "A5", ...pianoRef(81) },
+    ];
+    const session = new ListeningSession(SR);
+    session.setMode({ mode: "closest", primary: "pitch", candidates });
+    // A loud (bright) A4: should match the loud A4 layer first, then the soft one, then neighbours.
+    const { events } = run(session, mix(concat(silence(0.5, SR), syntheticPianoLayer(69, 2, SR, "loud", 5), silence(0.6, SR)), hiss(3.1)));
+    const closest = events.find((e) => e.type === "closest");
+    if (closest?.type !== "closest") throw new Error("no ranking");
+    expect(closest.result.compared).toBe(5);
+    expect(closest.result.matches.map((m) => m.id).slice(0, 2)).toEqual(["A4-loud", "A4-soft"]);
+    expect(closest.result.matches[0]!.timbreScore).not.toBeNull();
+    expect(closest.result.matches[2]!.score).toBe(0);
+
+    // And a soft (dark) A4 prefers the soft layer.
+    const softSession = new ListeningSession(SR);
+    softSession.setMode({ mode: "closest", primary: "pitch", candidates });
+    const softRun = run(softSession, mix(concat(silence(0.5, SR), syntheticPianoLayer(69, 2, SR, "soft", 6), silence(0.6, SR)), hiss(3.1)));
+    const softClosest = softRun.events.find((e) => e.type === "closest");
+    expect(softClosest?.type === "closest" && softClosest.result.matches[0]!.id).toBe("A4-soft");
+  });
+
+  it("returns no matches (with a warning) when the sound has no pitch", () => {
+    const session = new ListeningSession(SR);
+    session.setMode({ mode: "closest", primary: "pitch", candidates: [{ id: "A4", ...pianoRef(69) }] });
+    const { events } = run(session, mix(concat(silence(0.5, SR), whiteNoise(0.6, SR, 0.3, 9), silence(0.6, SR)), hiss(1.7)));
+    const closest = events.find((e) => e.type === "closest");
+    if (closest?.type !== "closest") throw new Error("no ranking");
+    expect(closest.result.matches).toEqual([]);
+    expect(closest.result.warnings.map((w) => w.code)).toContain("no_clear_pitch");
+  });
+
+  it("rejects malformed reference features", () => {
+    const session = new ListeningSession(SR);
+    expect(() => session.setMode({ mode: "compare", reference: { strategyId: "pitch", algorithmVersion: "1.0.0", data: { f0Hz: "x" } } })).toThrow();
+    expect(() => session.setMode({ mode: "compare", reference: { strategyId: "nope", algorithmVersion: "1.0.0", data: {} } })).toThrow(/Unknown strategy/);
   });
 });

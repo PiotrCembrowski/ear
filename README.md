@@ -7,9 +7,10 @@ Play or make a sound into your microphone, and SoundMatch analyses it live in yo
 > - accounts;
 > - the audio engine;
 > - the **live Listen screen** (`/listen`, note identification, works without an account);
-> - the **reference library** (`/library`) and **admin tools** (`/admin/references`, `/admin/import`).
+> - the **reference library** (`/library`) and **admin tools** (`/admin/references`, `/admin/import`);
+> - **live compare and closest match** on the Listen screen, and **history** (`/history`).
 >
-> Live comparison against references and history come next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
+> The full landing page, the remaining settings and polish come next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ## Requirements
 

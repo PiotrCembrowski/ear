@@ -329,3 +329,26 @@ export async function listVariants(client: Client, instrumentId: string): Promis
   if (error) throw new ServiceError("Could not load variants", error);
   return [...new Set(data.map((row) => row.variant))].sort();
 }
+
+export type SampleSnapshot = { referenceId: string; name: string; noteName: string; midiNote: number; velocity: number | null; variant: string; isSynthetic: boolean };
+
+/** Names and notes of the given samples, only if they belong to this instrument and the caller may read them. */
+export async function sampleSnapshots(client: Client, instrumentId: string, referenceIds: string[]): Promise<SampleSnapshot[]> {
+  if (referenceIds.length === 0) return [];
+  const { data, error } = await client
+    .from("instrument_samples")
+    .select("reference_sound_id, note_name, midi_note, velocity, variant, reference_sounds!inner(name, is_synthetic)")
+    .eq("instrument_id", instrumentId)
+    .in("reference_sound_id", referenceIds);
+  if (error) throw new ServiceError("Could not load the matched samples", error);
+  type Row = { reference_sound_id: string; note_name: string; midi_note: number; velocity: number | null; variant: string; reference_sounds: { name: string; is_synthetic: boolean } | null };
+  return (data as unknown as Row[]).map((row) => ({
+    referenceId: row.reference_sound_id,
+    name: row.reference_sounds?.name ?? "",
+    noteName: row.note_name,
+    midiNote: row.midi_note,
+    velocity: row.velocity,
+    variant: row.variant,
+    isSynthetic: row.reference_sounds?.is_synthetic ?? false,
+  }));
+}

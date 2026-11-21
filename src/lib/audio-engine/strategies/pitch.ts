@@ -50,6 +50,11 @@ const UNSTABLE_CENTS = 15;
 const MIN_VOICED_FRAMES = 3;
 /** Points kept for the pitch-track visual. */
 const TRACK_POINTS = 64;
+/** Early finish: this many clear frames after the attack (~0.6 s at a 23 ms hop)… */
+const EARLY_FINISH_FRAMES = 26;
+/** …with the most recent ~0.25 s steady within ±20 cents of their median. */
+const EARLY_FINISH_RECENT_FRAMES = 11;
+const EARLY_FINISH_STEADY_CENTS = 20;
 /** Mel bands for the average-spectrum visual. */
 const SPECTRUM_BANDS = 24;
 
@@ -206,6 +211,14 @@ class PitchAnalyzer implements LiveAnalyzer<PitchFeatureData> {
         this.spectrumFilled = 0;
       }
     }
+  }
+
+  readyToFinish(): boolean {
+    const clear = this.frames.filter((f) => f.timeMs >= ATTACK_SKIP_MS && f.hz > 0 && f.clarity >= CLARITY_THRESHOLD);
+    if (clear.length < EARLY_FINISH_FRAMES) return false;
+    const recent = clear.slice(-EARLY_FINISH_RECENT_FRAMES).map((f) => f.hz);
+    const centre = median(recent);
+    return recent.every((hz) => Math.abs(centsBetween(hz, centre)) <= EARLY_FINISH_STEADY_CENTS);
   }
 
   snapshot(): LiveReading {

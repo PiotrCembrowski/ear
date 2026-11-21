@@ -11,8 +11,15 @@
  * It only reports a pitch while the level is above the detector's end
  * threshold, so background noise doesn't make the needle wander.
  *
- * Phase 5 implements "identify" (name the note). Compare and closest-match
- * modes add their own per-event analyzers in Phase 7.
+ * Modes decide what happens to each sound event:
+ *   - identify: name the note (pitch analysis);
+ *   - compare:  compare with one reference, using the reference's strategy;
+ *   - closest:  rank every sample of an instrument (see closest.ts).
+ * Changing mode keeps the microphone, detector and tuner running.
+ *
+ * Pitch-based compare/closest finish EARLY, as soon as the note's pitch is
+ * steady (about 0.6 s), instead of waiting for a ringing note to fade; the
+ * rest of that sound is then ignored.
  */
 import { ANALYSIS_SAMPLE_RATE, DEFAULT_A4_HZ } from "./constants";
 import { SoundEventDetector, type DetectorOptions } from "./event-detector";
@@ -21,8 +28,11 @@ import { nearestNote, type NearestNote } from "./notes";
 import { PitchTracker, type PitchFrame } from "./pitch-tracker";
 import { noiseWarning, uniqueWarnings } from "./quality";
 import { StreamingResampler } from "./resampler";
+import { rankClosest, type ClosestCandidate, type ClosestResult } from "./closest";
+import { defaultRegistry } from "./registry";
 import { identifyNote, pitchStrategy, pitchWarnings, type NoteReading, type PitchFeatures } from "./strategies/pitch";
-import type { LiveAnalyzer, QualityWarning } from "./types";
+import { timbreStrategy } from "./strategies/timbre";
+import type { ComparisonResult, ComparisonStrategy, FeatureSet, LiveAnalyzer, QualityWarning } from "./types";
 
 export type SessionOptions = {
   sensitivityDb: number;
@@ -49,6 +59,11 @@ export type SessionSnapshot = {
   tuner: TunerReading | null;
 };
 
+export type ListeningMode =
+  | { mode: "identify" }
+  | { mode: "compare"; reference: FeatureSet }
+  | { mode: "closest"; primary: "pitch" | "timbre"; candidates: ClosestCandidate[] };
+
 export type SessionEvent =
   | { type: "sound-start" }
   | {
@@ -57,7 +72,9 @@ export type SessionEvent =
       reading: NoteReading | null;
       warnings: QualityWarning[];
       durationMs: number;
-    };
+    }
+  | { type: "comparison"; result: ComparisonResult; durationMs: number; finishedEarly: boolean }
+  | { type: "closest"; result: ClosestResult; durationMs: number; finishedEarly: boolean };
 
 /** Live tuner: minimum MPM clarity to show a pitch. */
 const TUNER_MIN_CLARITY = 0.85;
@@ -70,8 +87,15 @@ export class ListeningSession {
   readonly sampleRate: number;
   private options: SessionOptions;
   private readonly detector: SoundEventDetector;
-  private readonly eventAnalyzer: LiveAnalyzer<PitchFeatures["data"]>;
+  private mode: ListeningMode = { mode: "identify" };
+  /** Strategy for compare mode (the reference's own). */
+  private compareStrategy: ComparisonStrategy<unknown> | null = null;
+  /** Per-event analyzers for the current mode: the first one is the primary. */
+  private analyzers: Array<{ strategy: ComparisonStrategy<unknown>; analyzer: LiveAnalyzer<unknown> }> = [];
   private eventActive = false;
+  /** The current event already produced its (early) result; ignore the rest of it. */
+  private eventDone = false;
+  private eventStartMs = 0;
 
   // Live tuner path.
   private readonly tunerResampler: StreamingResampler;
@@ -89,8 +113,36 @@ export class ListeningSession {
       ...detectorOptions,
       sensitivityDb: this.options.sensitivityDb,
     });
-    this.eventAnalyzer = pitchStrategy.createAnalyzer(sampleRate);
     this.tunerResampler = new StreamingResampler(sampleRate, ANALYSIS_SAMPLE_RATE);
+    this.setMode({ mode: "identify" });
+  }
+
+  /**
+   * Switches what each sound is analysed for. Reference features are
+   * validated here (throws on malformed data). A sound in progress is dropped.
+   */
+  setMode(mode: ListeningMode): void {
+    const make = (strategy: ComparisonStrategy<unknown>) => ({ strategy, analyzer: strategy.createAnalyzer(this.sampleRate) });
+    if (mode.mode === "identify") {
+      this.analyzers = [make(pitchStrategy as ComparisonStrategy<unknown>)];
+      this.compareStrategy = null;
+    } else if (mode.mode === "compare") {
+      const strategy = defaultRegistry.get(mode.reference.strategyId);
+      if (!strategy) throw new Error(`Unknown strategy "${mode.reference.strategyId}"`);
+      mode = { mode: "compare", reference: strategy.parseFeatures(mode.reference) };
+      this.compareStrategy = strategy;
+      this.analyzers = [make(strategy)];
+    } else {
+      const usesTimbre = mode.primary === "timbre" || mode.candidates.some((c) => c.timbre);
+      this.analyzers =
+        mode.primary === "pitch"
+          ? [make(pitchStrategy as ComparisonStrategy<unknown>), ...(usesTimbre ? [make(timbreStrategy as ComparisonStrategy<unknown>)] : [])]
+          : [make(timbreStrategy as ComparisonStrategy<unknown>)];
+      this.compareStrategy = null;
+    }
+    this.mode = mode;
+    this.eventActive = false;
+    this.eventDone = false;
   }
 
   setSensitivity(sensitivityDb: number): void {
@@ -110,16 +162,25 @@ export class ListeningSession {
 
     for (const output of this.detector.process(block)) {
       if (output.type === "start") {
-        this.eventAnalyzer.reset();
+        for (const { analyzer } of this.analyzers) analyzer.reset();
         this.eventActive = true;
+        this.eventDone = false;
+        this.eventStartMs = this.elapsedMs;
         events.push({ type: "sound-start" });
       } else if (output.type === "audio") {
-        if (this.eventActive) this.eventAnalyzer.push(output.samples);
+        if (!this.eventActive || this.eventDone) continue;
+        for (const { analyzer } of this.analyzers) analyzer.push(output.samples);
+        if (this.mode.mode !== "identify" && this.analyzers[0]?.analyzer.readyToFinish?.()) {
+          this.eventDone = true;
+          events.push(this.eventResult(this.elapsedMs - this.eventStartMs, true));
+        }
       } else {
+        const wasDone = this.eventDone;
         this.eventActive = false;
-        // Ignore clicks and taps: they would only replace the last real note with noise.
-        if (output.tooShort) continue;
-        events.push(this.noteResult(output.durationMs));
+        this.eventDone = false;
+        // Ignore clicks and taps: they would only replace the last real result with noise.
+        if (output.tooShort || wasDone) continue;
+        events.push(this.eventResult(output.durationMs, false));
       }
     }
 
@@ -128,13 +189,29 @@ export class ListeningSession {
     return events;
   }
 
-  /** Finishes the current event's analysis and names its note. */
-  private noteResult(durationMs: number): SessionEvent {
-    const features = this.eventAnalyzer.finish() as PitchFeatures;
+  /** Finishes the current event's analysis and produces the mode's result. */
+  private eventResult(durationMs: number, finishedEarly: boolean): SessionEvent {
+    const features = this.analyzers.map(({ analyzer }) => analyzer.finish());
+    const primary = features[0]!;
+    const noise = (stats: { rmsDb: number; durationMs: number; peakDb: number; clippedFraction: number }) =>
+      noiseWarning(stats, this.detector.state.noiseFloorDb);
+
+    if (this.mode.mode === "compare" && this.compareStrategy) {
+      const result = this.compareStrategy.compare(primary, this.mode.reference, { a4Hz: this.options.a4Hz });
+      const stats = (primary.data as { stats: Parameters<typeof noise>[0] }).stats;
+      return { type: "comparison", result: { ...result, warnings: uniqueWarnings(result.warnings, noise(stats)) }, durationMs, finishedEarly };
+    }
+    if (this.mode.mode === "closest") {
+      const byStrategy = Object.fromEntries(features.map((f) => [f.strategyId, f])) as { pitch?: FeatureSet; timbre?: FeatureSet };
+      const result = rankClosest(byStrategy, this.mode.candidates, { primary: this.mode.primary, a4Hz: this.options.a4Hz });
+      const stats = (primary.data as { stats: Parameters<typeof noise>[0] }).stats;
+      return { type: "closest", result: { ...result, warnings: uniqueWarnings(result.warnings, noise(stats)) }, durationMs, finishedEarly };
+    }
+    const pitch = primary as PitchFeatures;
     return {
       type: "note",
-      reading: identifyNote(features, this.options.a4Hz),
-      warnings: uniqueWarnings(pitchWarnings(features.data), noiseWarning(features.data.stats, this.detector.state.noiseFloorDb)),
+      reading: identifyNote(pitch, this.options.a4Hz),
+      warnings: uniqueWarnings(pitchWarnings(pitch.data), noise(pitch.data.stats)),
       durationMs,
     };
   }
@@ -171,11 +248,15 @@ export class ListeningSession {
   flush(): SessionEvent[] {
     const events: SessionEvent[] = [];
     for (const output of this.detector.flush()) {
-      if (output.type === "audio" && this.eventActive) this.eventAnalyzer.push(output.samples);
+      if (output.type === "audio" && this.eventActive && !this.eventDone) {
+        for (const { analyzer } of this.analyzers) analyzer.push(output.samples);
+      }
       if (output.type === "end") {
+        const wasDone = this.eventDone;
         this.eventActive = false;
-        if (output.tooShort) continue;
-        events.push(this.noteResult(output.durationMs));
+        this.eventDone = false;
+        if (output.tooShort || wasDone) continue;
+        events.push(this.eventResult(output.durationMs, false));
       }
     }
     return events;
@@ -183,8 +264,9 @@ export class ListeningSession {
 
   reset(): void {
     this.detector.reset();
-    this.eventAnalyzer.reset();
+    for (const { analyzer } of this.analyzers) analyzer.reset();
     this.eventActive = false;
+    this.eventDone = false;
     this.tunerResampler.reset();
     this.tunerTracker.reset();
     this.recentFrames = [];

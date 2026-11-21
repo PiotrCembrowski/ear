@@ -30,3 +30,5 @@ export {
   type NoteReading,
 } from "./strategies/pitch";
 export { timbreStrategy, TIMBRE_STRATEGY_ID, TIMBRE_STRATEGY_VERSION, TIMBRE_CALIBRATION, type TimbreFeatures } from "./strategies/timbre";
+export { rankClosest, type ClosestCandidate, type ClosestMatch, type ClosestResult } from "./closest";
+export { ListeningSession, type ListeningMode, type SessionEvent, type SessionOptions, type SessionSnapshot, type TunerReading } from "./listening-session";

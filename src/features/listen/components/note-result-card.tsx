@@ -1,13 +1,17 @@
 "use client";
 
-import { TriangleAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { LastNote } from "../listen-controller";
+import { Button } from "@/components/ui/button";
+import { WarningList } from "@/features/comparison/components/warning-list";
+import type { ListenController, ListenState } from "../listen-controller";
+import { SaveStatus } from "./result-panel";
 
 const CONFIDENCE_LABEL = { high: "High", medium: "Medium", low: "Low" } as const;
 
 /** Summary of the last complete sound: appears when a sound ends. */
-export function NoteResultCard({ note }: { note: LastNote | null }) {
+export function NoteResultCard({ state, controller, signedIn }: { state: ListenState; controller: ListenController; signedIn: boolean }) {
+  const note = state.lastNote;
+  const saved = state.save.status !== "idle" && "sequence" in state.save && note && state.save.sequence === note.sequence;
   return (
     <Card aria-labelledby="last-note-heading">
       <CardHeader>
@@ -32,16 +36,19 @@ export function NoteResultCard({ note }: { note: LastNote | null }) {
               <p className="text-sm text-ink">No clear pitch was detected in that sound.</p>
             )}
             <p className="text-xs text-ink-subtle">Sound length {(note.durationMs / 1000).toFixed(2)} s</p>
-            {note.warnings.length > 0 && (
-              <ul className="flex flex-col gap-1.5" aria-label="Notes about this result">
-                {note.warnings.map((warning) => (
-                  <li key={warning.code} className="flex gap-2 text-sm text-warning">
-                    <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-                    <span className="text-ink">{warning.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <WarningList warnings={note.warnings} />
+            {note.reading &&
+              (signedIn ? (
+                saved ? (
+                  <SaveStatus save={state.save} sequence={note.sequence} onSave={() => void controller.saveLastNote()} />
+                ) : (
+                  <Button variant="secondary" size="sm" className="self-start" onClick={() => void controller.saveLastNote()}>
+                    Save this note to history
+                  </Button>
+                )
+              ) : (
+                <p className="text-xs text-ink-subtle">Sign in to keep a history of your notes.</p>
+              ))}
           </div>
         )}
       </CardContent>

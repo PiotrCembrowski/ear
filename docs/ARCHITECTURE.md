@@ -157,6 +157,36 @@ mic (getUserMedia; echoCancellation/noiseSuppression/autoGainControl = false; ch
   - Previews play through short-lived signed URLs, so private files stay private.
   - Synthetic tones and private references are always badged.
 
+## Compare, closest match and history
+
+- **Modes** (`ListeningSession.setMode`):
+  - *identify*;
+  - *compare* with one reference, using the reference's own strategy;
+  - *closest* across an instrument's samples.
+
+  Switching mode never restarts the microphone. The URL (`/listen?mode=compare&ref=…`, `&instrument=…&variant=…`) keeps the mode shareable; the library's **Compare** button links there.
+- **Features, not audio, go to the browser:**
+  - `GET /api/references/:id/features` returns the features of the strategy the registry picks for that reference;
+  - `GET /api/instruments/:id/features?variant=` returns every visible sample's current pitch and timbre features.
+
+  Both are protected by RLS, cached privately (`max-age=300`) and in memory (`features-client.ts`).
+- **Early finish:** pitch analyzers report `readyToFinish()` after about 0.6 s of steady, clear pitch. Compare and closest then show the result without waiting for a ringing note to fade, and the rest of that sound is ignored.
+- **Closest ranking** (`closest.ts`): pitch score ranks the candidates. Among candidates within 1 point (velocity layers of one note), the timbre score breaks the tie. Timbre is loudness-independent, so it separates layers by *brightness*, as on real pianos.
+- **History:** `POST /api/comparisons` → `recordComparison()`. The result was computed on the user's device, so it is trusted **only for that user's own history**. In order, it:
+  - validates strict Zod shapes (unknown keys rejected, finite numbers, bounded arrays and text, fixed warning codes);
+  - checks the strategy and version are current;
+  - checks the reference is readable by the user, and that the registry would pick that strategy for it;
+  - checks closest-match IDs are samples of that instrument;
+  - respects the user's "save history" setting for automatic saves (manual saves always work);
+  - applies a Postgres rate limit (`consume_rate_limit`);
+  - takes the user ID from the session, builds the title and reference snapshot on the server, and inserts with the secret key (users have no INSERT grant).
+
+  It also checks same-origin, requires JSON, and caps the body at 32 KB.
+- **History pages:** `/history` (search, type filter, pagination, delete) and `/history/:id`. The latter re-renders the stored summary with the same result views; anything that fails `storedResultSchema` shows a notice instead of crashing.
+- **Result visuals** (`components/charts/line-chart.tsx`): an SVG line chart at the container's real width.
+  - Series colours (`--color-series-1` blue = you, `--color-series-2` orange = reference, also dashed) passed the data-viz palette validator on the dark surface.
+  - It has a legend, a hover and arrow-key crosshair with tooltip, a written summary, and a "Show data" table.
+
 ## Data model (see `supabase/migrations/`)
 
 - `profiles`: `role` (`user` | `admin`) and `settings` (`a4Hz`, `sensitivityDb`, `saveHistory`).

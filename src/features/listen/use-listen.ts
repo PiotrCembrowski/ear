@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { SessionSnapshot } from "@/lib/audio-engine/listening-session";
-import { ListenController, type ListenState } from "./listen-controller";
+import { ListenController, type ListenDefaults, type ListenState } from "./listen-controller";
 
 /** One controller per mounted Listen screen; released (mic off, worker ended) on unmount. */
-export function useListenController(defaults: { sensitivityDb: number; a4Hz: number }): ListenController {
+export function useListenController(defaults: ListenDefaults): ListenController {
   const [controller] = useState(() => new ListenController(defaults));
   useEffect(() => controller.attach(), [controller]);
   return controller;

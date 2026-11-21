@@ -61,6 +61,7 @@ scope.onmessage = (event) => {
       case "start":
         stop();
         session = new ListeningSession(message.sampleRate, message.options);
+        session.setMode(message.mode);
         readingInterval = Math.round((READING_INTERVAL_MS / 1000) * message.sampleRate);
         samplesSinceReading = 0;
         audioPort = message.audioPort;
@@ -69,6 +70,9 @@ scope.onmessage = (event) => {
         break;
       case "set-sensitivity":
         session?.setSensitivity(message.sensitivityDb);
+        break;
+      case "set-mode":
+        session?.setMode(message.mode);
         break;
       case "set-a4":
         session?.setA4(message.a4Hz);

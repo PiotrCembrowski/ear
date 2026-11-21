@@ -17,6 +17,7 @@ export const ROUTES = {
   dashboard: "/dashboard",
   listen: "/listen",
   library: "/library",
+  history: "/history",
   adminReferences: "/admin/references",
   adminNewReference: "/admin/references/new",
   adminImport: "/admin/import",

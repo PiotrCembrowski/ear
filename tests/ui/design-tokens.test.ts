@@ -53,6 +53,12 @@ describe("design tokens: WCAG AA contrast", () => {
     });
   }
 
+  for (const series of ["series-1", "series-2"]) {
+    it(`chart ${series} on surface ≥ 3:1 (graphical objects)`, () => {
+      expect(contrast(series, "surface")).toBeGreaterThanOrEqual(3);
+    });
+  }
+
   for (const surface of surfaces) {
     it(`form-control borders on ${surface} ≥ 3:1`, () => {
       expect(contrast("line-control", surface)).toBeGreaterThanOrEqual(3);

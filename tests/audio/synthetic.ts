@@ -146,3 +146,20 @@ export function syntheticHit(duration: number, sampleRate: number, seed = 9, dec
   const noise = whiteNoise(duration, sampleRate, 0.8, seed);
   return noise.map((v, i) => v * Math.exp(-i / sampleRate / decaySeconds));
 }
+
+/**
+ * Piano-ish velocity layers: like real pianos, harder strikes are BRIGHTER
+ * (stronger upper harmonics), not just louder. Overall level differs too,
+ * but timbre comparison ignores level, so brightness is what tells them apart.
+ */
+export function syntheticPianoLayer(midi: number, duration: number, sampleRate: number, layer: "soft" | "loud", seed = 11): Float32Array {
+  const rolloff = layer === "loud" ? 0.8 : 0.35; // amplitude ratio between neighbouring harmonics
+  return harmonicTone(midiToHz(midi), duration, sampleRate, {
+    harmonics: Array.from({ length: 10 }, (_, k) => rolloff ** k),
+    decaySeconds: 1.2,
+    attackSeconds: 0.004,
+    inharmonicity: 0.0004,
+    amplitude: layer === "loud" ? 0.8 : 0.2,
+    seed,
+  });
+}

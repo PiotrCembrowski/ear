@@ -7,10 +7,18 @@
  *  - The tab going to the background stops listening (privacy, and iOS would
  *    suspend audio anyway); so do pagehide and leaving the page.
  *  - An unplugged device or an interrupted AudioContext is reported clearly.
+ *
+ * Modes (identify / compare / closest) only change what the worker does with
+ * each sound; switching never restarts the microphone. Results are saved to
+ * history automatically for signed-in users (unless they turned it off);
+ * only result summaries are sent, never audio.
  */
-import type { SessionSnapshot } from "@/lib/audio-engine/listening-session";
+import type { ClosestResult } from "@/lib/audio-engine/closest";
+import type { ListeningMode, SessionSnapshot } from "@/lib/audio-engine/listening-session";
 import type { NoteReading } from "@/lib/audio-engine/strategies/pitch";
-import type { QualityWarning } from "@/lib/audio-engine/types";
+import type { ComparisonResult, QualityWarning } from "@/lib/audio-engine/types";
+import { fetchInstrumentFeatures, fetchReferenceFeatures, FeaturesError } from "@/lib/audio-browser/features-client";
+import type { InstrumentFeaturesResponse, ReferenceSummary } from "@/lib/audio-browser/reference-data";
 import { createAnalysisWorker } from "@/lib/audio-browser/analysis-client";
 import { INPUT_DEVICE_STORAGE_KEY } from "@/lib/audio-browser/constants";
 import {
@@ -21,7 +29,7 @@ import {
   type MicrophoneErrorCode,
   type MicrophoneHandle,
 } from "@/lib/audio-browser/microphone";
-import type { WorkerResponse } from "@/lib/audio-browser/protocol";
+import type { WorkerRequest, WorkerResponse } from "@/lib/audio-browser/protocol";
 import { Store } from "@/lib/audio-browser/store";
 
 export type ListenStatus = "idle" | "starting" | "listening" | "paused" | "error";
@@ -36,6 +44,49 @@ export type LastNote = {
   sequence: number;
 };
 
+export type ListenMode = "identify" | "compare" | "closest";
+
+export type CompareSetup =
+  | { status: "empty" }
+  | { status: "loading"; referenceId: string }
+  | { status: "ready"; referenceId: string; reference: ReferenceSummary; strategyId: string }
+  | { status: "error"; referenceId: string; message: string };
+
+export type CandidateLabel = { name: string; noteName: string; velocity: number | null; variant: string; isSynthetic: boolean };
+
+export type ClosestSetup =
+  | { status: "empty" }
+  | { status: "loading"; instrumentId: string; variant: string | null }
+  | {
+      status: "ready";
+      instrumentId: string;
+      instrumentName: string;
+      variant: string | null;
+      variants: string[];
+      count: number;
+      labels: ReadonlyMap<string, CandidateLabel>;
+    }
+  | { status: "error"; instrumentId: string; variant: string | null; message: string };
+
+export type LastResult =
+  | { kind: "comparison"; result: ComparisonResult; reference: ReferenceSummary; finishedEarly: boolean; sequence: number }
+  | {
+      kind: "closest";
+      result: ClosestResult;
+      instrumentId: string;
+      instrumentName: string;
+      variant: string | null;
+      labels: ReadonlyMap<string, CandidateLabel>;
+      sequence: number;
+    };
+
+export type SaveState =
+  | { status: "idle" }
+  | { status: "saving"; sequence: number }
+  | { status: "saved"; sequence: number; id: string }
+  | { status: "skipped"; sequence: number; message: string }
+  | { status: "error"; sequence: number; message: string };
+
 export type ListenState = {
   status: ListenStatus;
   errorCode: ListenErrorCode | null;
@@ -49,6 +100,19 @@ export type ListenState = {
   sensitivityDb: number;
   a4Hz: number;
   lastNote: LastNote | null;
+  mode: ListenMode;
+  compare: CompareSetup;
+  closest: ClosestSetup;
+  lastResult: LastResult | null;
+  save: SaveState;
+};
+
+export type ListenDefaults = {
+  sensitivityDb: number;
+  a4Hz: number;
+  /** Signed-in users can compare and save; identify works for everyone. */
+  signedIn: boolean;
+  saveHistory: boolean;
 };
 
 function readStoredDevice(): string | null {
@@ -77,8 +141,15 @@ export class ListenController {
   private worker: Worker | null = null;
   private noteSequence = 0;
   private startToken = 0;
+  private readonly signedIn: boolean;
+  private readonly saveHistory: boolean;
+  /** Features for the worker, kept here so a (re)started worker gets the current mode. */
+  private compareMode: Extract<ListeningMode, { mode: "compare" }> | null = null;
+  private closestMode: Extract<ListeningMode, { mode: "closest" }> | null = null;
 
-  constructor(defaults: { sensitivityDb: number; a4Hz: number }) {
+  constructor(defaults: ListenDefaults) {
+    this.signedIn = defaults.signedIn;
+    this.saveHistory = defaults.saveHistory;
     this.state = new Store<ListenState>({
       status: "idle",
       errorCode: null,
@@ -91,7 +162,155 @@ export class ListenController {
       sensitivityDb: defaults.sensitivityDb,
       a4Hz: defaults.a4Hz,
       lastNote: null,
+      mode: "identify",
+      compare: { status: "empty" },
+      closest: { status: "empty" },
+      lastResult: null,
+      save: { status: "idle" },
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Modes
+  // -------------------------------------------------------------------------
+
+  /** What the worker should do with each sound, given the selected mode and loaded features. */
+  private workerMode(): ListeningMode {
+    const { mode } = this.state.get();
+    if (mode === "compare" && this.compareMode) return this.compareMode;
+    if (mode === "closest" && this.closestMode) return this.closestMode;
+    return { mode: "identify" };
+  }
+
+  private post(message: WorkerRequest, transfer: Transferable[] = []): void {
+    this.worker?.postMessage(message, transfer);
+  }
+
+  private syncWorkerMode(): void {
+    this.post({ type: "set-mode", mode: this.workerMode() });
+  }
+
+  selectMode(mode: ListenMode): void {
+    if (this.state.get().mode === mode) return;
+    this.state.update({ mode, lastResult: null, save: { status: "idle" } });
+    this.syncWorkerMode();
+  }
+
+  /** Loads a reference's features (cached) and makes it the compare target. */
+  async loadReference(referenceId: string): Promise<void> {
+    this.state.update({ compare: { status: "loading", referenceId } });
+    try {
+      const data = await fetchReferenceFeatures(referenceId);
+      if (this.state.get().compare.status !== "loading") return;
+      this.compareMode = { mode: "compare", reference: data.features };
+      this.state.update({ compare: { status: "ready", referenceId, reference: data.reference, strategyId: data.strategyId }, lastResult: null });
+      this.syncWorkerMode();
+    } catch (error) {
+      this.compareMode = null;
+      this.state.update({ compare: { status: "error", referenceId, message: error instanceof FeaturesError ? error.message : "Couldn't load the reference." } });
+      this.syncWorkerMode();
+    }
+  }
+
+  /** Loads all samples of an instrument (optionally one variant) for closest match. */
+  async loadInstrument(instrumentId: string, variant: string | null): Promise<void> {
+    this.state.update({ closest: { status: "loading", instrumentId, variant } });
+    try {
+      const data: InstrumentFeaturesResponse = await fetchInstrumentFeatures(instrumentId, variant);
+      this.closestMode = {
+        mode: "closest",
+        primary: data.primary,
+        candidates: data.candidates.map((c) => ({ id: c.referenceId, pitch: c.pitch, timbre: c.timbre })),
+      };
+      const labels = new Map(data.candidates.map((c) => [c.referenceId, { name: c.name, noteName: c.noteName, velocity: c.velocity, variant: c.variant, isSynthetic: c.isSynthetic }]));
+      this.state.update({
+        closest: {
+          status: "ready",
+          instrumentId,
+          instrumentName: data.instrument.name,
+          variant: data.variant,
+          variants: data.variants,
+          count: data.candidates.length,
+          labels,
+        },
+        lastResult: null,
+      });
+      this.syncWorkerMode();
+    } catch (error) {
+      this.closestMode = null;
+      this.state.update({
+        closest: { status: "error", instrumentId, variant, message: error instanceof FeaturesError ? error.message : "Couldn't load the instrument's samples." },
+      });
+      this.syncWorkerMode();
+    }
+  }
+
+  /** "Try again": clears the result and makes sure we're listening (call from a click). */
+  async tryAgain(): Promise<void> {
+    this.state.update({ lastResult: null, save: { status: "idle" } });
+    if (!this.isActive()) await this.start();
+  }
+
+  // -------------------------------------------------------------------------
+  // History
+  // -------------------------------------------------------------------------
+
+  /** Saves the last compare/closest result explicitly (e.g. when automatic saving is off). */
+  async saveLastResult(): Promise<void> {
+    const result = this.state.get().lastResult;
+    if (result) await this.saveResult(result, "manual");
+  }
+
+  /** "Save this note" in identify mode. */
+  async saveLastNote(): Promise<void> {
+    const note = this.state.get().lastNote;
+    if (!note?.reading) return;
+    const { reading } = note;
+    await this.submit(note.sequence, {
+      mode: "identify",
+      trigger: "manual",
+      result: {
+        name: reading.name,
+        midi: reading.midi,
+        hz: reading.hz,
+        cents: reading.cents,
+        confidence: reading.confidence,
+        warnings: note.warnings,
+        durationMs: note.durationMs,
+      },
+    });
+  }
+
+  private async saveResult(result: LastResult, trigger: "auto" | "manual"): Promise<void> {
+    if (result.kind === "comparison") {
+      await this.submit(result.sequence, { mode: "compare", trigger, referenceId: result.reference.id, result: result.result });
+    } else {
+      await this.submit(result.sequence, { mode: "closest", trigger, instrumentId: result.instrumentId, variant: result.variant, result: result.result });
+    }
+  }
+
+  /** Sends a result SUMMARY (numbers and labels, never audio) to the history API. */
+  private async submit(sequence: number, payload: unknown): Promise<void> {
+    if (!this.signedIn) {
+      this.state.update({ save: { status: "skipped", sequence, message: "Sign in to keep a history of your results." } });
+      return;
+    }
+    this.state.update({ save: { status: "saving", sequence } });
+    try {
+      const response = await fetch("/api/comparisons", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json().catch(() => ({}))) as { saved?: boolean; id?: string; reason?: string; error?: string };
+      if (response.ok && body.saved && body.id) this.state.update({ save: { status: "saved", sequence, id: body.id } });
+      else if (response.ok && body.reason === "history-off") {
+        this.state.update({ save: { status: "skipped", sequence, message: "Not saved: saving to history is turned off in Settings." } });
+      } else this.state.update({ save: { status: "error", sequence, message: body.error ?? "Couldn't save to history." } });
+    } catch {
+      this.state.update({ save: { status: "error", sequence, message: "Couldn't reach the server to save this result." } });
+    }
   }
 
   get analyser(): AnalyserNode | null {
@@ -141,11 +360,12 @@ export class ListenController {
         return;
       }
       this.microphone = microphone;
-      const worker = this.ensureWorker();
+      this.ensureWorker();
       const { sensitivityDb, a4Hz } = this.state.get();
-      worker.postMessage({ type: "start", sampleRate: microphone.sampleRate, options: { sensitivityDb, a4Hz }, audioPort: microphone.audioPort }, [
-        microphone.audioPort,
-      ]);
+      this.post(
+        { type: "start", sampleRate: microphone.sampleRate, options: { sensitivityDb, a4Hz }, mode: this.workerMode(), audioPort: microphone.audioPort },
+        [microphone.audioPort],
+      );
       this.state.update({
         status: "listening",
         activeDeviceLabel: microphone.deviceLabel,
@@ -190,12 +410,12 @@ export class ListenController {
 
   setSensitivity(sensitivityDb: number): void {
     this.state.update({ sensitivityDb });
-    this.worker?.postMessage({ type: "set-sensitivity", sensitivityDb });
+    this.post({ type: "set-sensitivity", sensitivityDb });
   }
 
   setA4(a4Hz: number): void {
     this.state.update({ a4Hz });
-    this.worker?.postMessage({ type: "set-a4", a4Hz });
+    this.post({ type: "set-a4", a4Hz });
   }
 
   /** Changing the input while listening restarts on the new device (call from the change handler). */
@@ -225,7 +445,7 @@ export class ListenController {
   private async releaseMicrophone(): Promise<void> {
     const microphone = this.microphone;
     this.microphone = null;
-    this.worker?.postMessage({ type: "stop" });
+    this.post({ type: "stop" });
     this.live.set(null);
     if (microphone) await microphone.stop();
   }
@@ -262,9 +482,23 @@ export class ListenController {
         break;
       case "events":
         for (const event of message.events) {
-          if (event.type === "note") {
+          const { mode, compare, closest } = this.state.get();
+          if (event.type === "note" && mode === "identify") {
             this.state.update({
               lastNote: { reading: event.reading, warnings: event.warnings, durationMs: event.durationMs, sequence: ++this.noteSequence },
+              save: { status: "idle" },
+            });
+          } else if (event.type === "comparison" && mode === "compare" && compare.status === "ready") {
+            this.publishResult({ kind: "comparison", result: event.result, reference: compare.reference, finishedEarly: event.finishedEarly, sequence: ++this.noteSequence });
+          } else if (event.type === "closest" && mode === "closest" && closest.status === "ready") {
+            this.publishResult({
+              kind: "closest",
+              result: event.result,
+              instrumentId: closest.instrumentId,
+              instrumentName: closest.instrumentName,
+              variant: closest.variant,
+              labels: closest.labels,
+              sequence: ++this.noteSequence,
             });
           }
         }
@@ -275,6 +509,12 @@ export class ListenController {
       default:
         break;
     }
+  }
+
+  private publishResult(result: LastResult): void {
+    this.state.update({ lastResult: result, save: { status: "idle" } });
+    if (this.signedIn && this.saveHistory) void this.saveResult(result, "auto");
+    else if (this.signedIn) this.state.update({ save: { status: "skipped", sequence: result.sequence, message: "Not saved: saving to history is off." } });
   }
 
   async dispose(): Promise<void> {

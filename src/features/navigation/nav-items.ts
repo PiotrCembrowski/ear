@@ -1,4 +1,4 @@
-import { AudioLines, Library, LayoutDashboard, Settings, ShieldCheck, type LucideIcon } from "lucide-react";
+import { AudioLines, History, Library, LayoutDashboard, Settings, ShieldCheck, type LucideIcon } from "lucide-react";
 import { ROUTES } from "@/lib/auth/routes";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon; adminOnly?: boolean };
@@ -12,6 +12,7 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
   { href: ROUTES.listen, label: "Listen", icon: AudioLines },
   { href: ROUTES.library, label: "Library", icon: Library },
+  { href: ROUTES.history, label: "History", icon: History },
   { href: ROUTES.settings, label: "Settings", icon: Settings },
   { href: ROUTES.adminReferences, label: "Admin", icon: ShieldCheck, adminOnly: true },
 ];

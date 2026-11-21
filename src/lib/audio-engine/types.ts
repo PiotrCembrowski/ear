@@ -116,6 +116,12 @@ export interface LiveAnalyzer<TData = unknown> {
   snapshot(): LiveReading;
   finish(): FeatureSet<TData>;
   reset(): void;
+  /**
+   * Optional: true once enough of the sound has been heard for a reliable
+   * result, so the app can show it without waiting for the sound to end
+   * (a piano note can ring for 5 s; its pitch is clear after ~0.6 s).
+   */
+  readyToFinish?(): boolean;
 }
 
 export interface ComparisonStrategy<TData = unknown> {

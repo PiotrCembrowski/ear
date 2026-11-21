@@ -13,6 +13,8 @@
  * written, and POST /__reset clears it, for assertions.
  */
 import http from "node:http";
+import { pitchStrategy, timbreStrategy } from "../../../src/lib/audio-engine";
+import { syntheticPianoNote } from "../../audio/synthetic";
 
 export const FAKE_SUPABASE_PORT = 54399;
 export const ADMIN_ID = "11111111-1111-4111-8111-111111111111";
@@ -73,6 +75,34 @@ const references = [
 /** Notes already stored for piano / "salamander". */
 const existingSamples = [{ midi_note: 69, velocity: 80 }];
 
+/**
+ * Real engine features for SYNTHETIC piano notes, computed at start-up, so
+ * compare and closest-match run the true code path in the browser.
+ * Reference 20…0001 (Piano A4) is the compare target.
+ */
+const featureClip = (midi: number) => ({ samples: syntheticPianoNote(midi, 1.5, 44100), sampleRate: 44100 });
+const sampleNotes = [
+  { id: "20000000-0000-4000-8000-000000000001", midi: 69, note: "A4" },
+  { id: "20000000-0000-4000-8000-000000000011", midi: 70, note: "A#4" },
+  { id: "20000000-0000-4000-8000-000000000012", midi: 68, note: "G#4" },
+].map((s) => ({ ...s, pitch: pitchStrategy.extract(featureClip(s.midi)), timbre: timbreStrategy.extract(featureClip(s.midi)) }));
+
+const candidateRows = sampleNotes.map((s) => ({
+  reference_sound_id: s.id,
+  variant: "salamander",
+  midi_note: s.midi,
+  note_name: s.note,
+  velocity: 80,
+  reference_sounds: {
+    name: `Piano ${s.note} · salamander · v80`,
+    is_synthetic: false,
+    reference_features: [
+      { strategy_id: "pitch", algorithm_version: pitchStrategy.version, features: s.pitch },
+      { strategy_id: "timbre", algorithm_version: timbreStrategy.version, features: s.timbre },
+    ],
+  },
+}));
+
 function userIdFrom(request: http.IncomingMessage): string | null {
   const token = (request.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
   try {
@@ -86,6 +116,7 @@ function userIdFrom(request: http.IncomingMessage): string | null {
 export function startFakeSupabase(port = FAKE_SUPABASE_PORT): http.Server {
   let log: string[] = [];
   const files = new Map<string, Buffer>();
+  let comparisons: Array<Record<string, unknown>> = [];
 
   const server = http.createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -113,6 +144,7 @@ export function startFakeSupabase(port = FAKE_SUPABASE_PORT): http.Server {
       if (path === "/__reset") {
         log = [];
         files.clear();
+        comparisons = [];
         return send({ ok: true });
       }
 
@@ -131,7 +163,42 @@ export function startFakeSupabase(port = FAKE_SUPABASE_PORT): http.Server {
       }
       if (method === "GET" && path === "/rest/v1/reference_categories") return send(categories);
       if (method === "GET" && path === "/rest/v1/instruments") return send(instruments);
-      if (method === "GET" && path === "/rest/v1/instrument_samples") return send(existingSamples);
+      if (method === "GET" && path === "/rest/v1/instrument_samples") {
+        const select = (url.searchParams.get("select") ?? "").replace(/\s+/g, ""); // supabase-js strips spaces
+        if (select.includes("reference_features")) return send(candidateRows); // closest-match candidates
+        if (select.startsWith("variant")) return send([{ variant: "salamander" }]); // variants list
+        if (select.includes("reference_sounds!inner(name,is_synthetic)")) {
+          // sample snapshots for a saved closest-match ranking
+          return send(
+            candidateRows.map((r) => ({
+              reference_sound_id: r.reference_sound_id,
+              note_name: r.note_name,
+              midi_note: r.midi_note,
+              velocity: r.velocity,
+              variant: r.variant,
+              reference_sounds: { name: r.reference_sounds.name, is_synthetic: false },
+            })),
+          );
+        }
+        return send(existingSamples); // importer duplicate check
+      }
+      if (method === "GET" && path === "/rest/v1/reference_features") {
+        const strategy = url.searchParams.get("strategy_id")?.replace("eq.", "");
+        const features = strategy === "timbre" ? sampleNotes[0]!.timbre : sampleNotes[0]!.pitch;
+        return send(single ? { features } : [{ features }]);
+      }
+      if (method === "POST" && path === "/rest/v1/rpc/consume_rate_limit") return send(true);
+      if (method === "POST" && path === "/rest/v1/comparisons") {
+        const row: Record<string, unknown> = { ...(JSON.parse(body) as Record<string, unknown>), id: `40000000-0000-4000-8000-${String(comparisons.length + 1).padStart(12, "0")}`, created_at: new Date().toISOString() };
+        comparisons.unshift(row);
+        log.push(`insert comparisons ${row.mode} user=${String(row.user_id)} score=${String(row.score)} bytes=${body.length}`);
+        return send(single ? { id: row.id } : [{ id: row.id }], 201);
+      }
+      if (method === "GET" && path === "/rest/v1/comparisons") {
+        const id = url.searchParams.get("id")?.replace("eq.", "");
+        const rows = id ? comparisons.filter((c) => c.id === id) : comparisons;
+        return send(single ? (rows[0] ?? null) : rows, 200, rows.length);
+      }
       if (method === "GET" && path === "/rest/v1/reference_sounds") {
         if ((url.searchParams.get("select") ?? "").includes("reference_features")) {
           return send(
@@ -143,7 +210,9 @@ export function startFakeSupabase(port = FAKE_SUPABASE_PORT): http.Server {
             })),
           );
         }
-        const rows = url.searchParams.get("instrument_samples.instrument_id") ? references.filter((r) => r.instrument_samples) : references;
+        const idFilter = url.searchParams.get("id")?.replace("eq.", "");
+        let rows = url.searchParams.get("instrument_samples.instrument_id") ? references.filter((r) => r.instrument_samples) : references;
+        if (idFilter) rows = rows.filter((r) => r.id === idFilter);
         return send(single ? rows[0] : rows, 200, rows.length);
       }
 

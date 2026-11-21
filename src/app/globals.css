@@ -38,6 +38,11 @@
   /* Live listening state: unmistakable, used only while the mic is on */
   --color-live: #ff5c7a;
 
+  /* Chart series (validated pair for the dark surface: CVD-safe, ≥ 3:1 contrast).
+     Series 1 = the user's sound, series 2 = the reference (also drawn dashed). */
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+
   /* Status */
   --color-success: #3ddc97;
   --color-warning: #fbbf24;

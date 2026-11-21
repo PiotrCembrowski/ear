@@ -31,7 +31,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
     <>
       <PageHeader
         title="Reference library"
-        description="Browse the sounds and instrument notes your recordings can be compared with. Preview any of them; comparing live against a reference comes in the next update."
+        description="Browse the sounds and instrument notes you can compare with. Preview any of them, then press Compare and play your own version."
       />
       <div className="flex flex-col gap-6">
         <LibraryFilters action={ROUTES.library} params={params} categories={categories} instruments={instruments} />
@@ -68,7 +68,16 @@ export default async function LibraryPage({ searchParams }: { searchParams: Sear
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {result.items.map((reference) => (
-              <ReferenceCard key={reference.id} reference={reference} audioUrl={audioUrls.get(reference.storagePath) ?? null} />
+              <ReferenceCard
+                key={reference.id}
+                reference={reference}
+                audioUrl={audioUrls.get(reference.storagePath) ?? null}
+                actions={
+                  <ButtonLink href={`${ROUTES.listen}?mode=compare&ref=${reference.id}`} size="sm" className="self-start" aria-label={`Compare with ${reference.name}`}>
+                    Compare
+                  </ButtonLink>
+                }
+              />
             ))}
           </div>
         )}

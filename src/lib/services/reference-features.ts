@@ -88,3 +88,74 @@ export async function deleteStaleFeatures(client: Client): Promise<void> {
     if (error) throw new ServiceError("Could not remove outdated features", error);
   }
 }
+
+/** The stored features of one reference for one strategy's CURRENT version, or null if not computed yet. */
+export async function getCurrentFeatures(client: Client, referenceSoundId: string, strategyId: string): Promise<unknown | null> {
+  const strategy = defaultRegistry.get(strategyId);
+  if (!strategy) return null;
+  const { data, error } = await client
+    .from("reference_features")
+    .select("features")
+    .eq("reference_sound_id", referenceSoundId)
+    .eq("strategy_id", strategy.id)
+    .eq("algorithm_version", strategy.version)
+    .maybeSingle();
+  if (error) throw new ServiceError("Could not load reference features", error);
+  return data?.features ?? null;
+}
+
+export type InstrumentCandidate = {
+  referenceId: string;
+  name: string;
+  variant: string;
+  midiNote: number;
+  noteName: string;
+  velocity: number | null;
+  isSynthetic: boolean;
+  /** Current-version features by strategy id (pitch and timbre for notes). */
+  features: Record<string, unknown>;
+};
+
+/** Every sample of an instrument (optionally one variant) with its current features. RLS hides private ones. */
+export async function listInstrumentCandidates(client: Client, instrumentId: string, variant: string | null): Promise<InstrumentCandidate[]> {
+  let query = client
+    .from("instrument_samples")
+    .select("reference_sound_id, variant, midi_note, note_name, velocity, reference_sounds!inner(name, is_synthetic, reference_features(strategy_id, algorithm_version, features))")
+    .eq("instrument_id", instrumentId)
+    .order("midi_note");
+  if (variant) query = query.eq("variant", variant);
+  const { data, error } = await query;
+  if (error) throw new ServiceError("Could not load instrument samples", error);
+
+  type Row = {
+    reference_sound_id: string;
+    variant: string;
+    midi_note: number;
+    note_name: string;
+    velocity: number | null;
+    reference_sounds: {
+      name: string;
+      is_synthetic: boolean;
+      reference_features: Array<{ strategy_id: string; algorithm_version: string; features: unknown }>;
+    } | null;
+  };
+  return (data as unknown as Row[]).flatMap((row) => {
+    if (!row.reference_sounds) return [];
+    const features: Record<string, unknown> = {};
+    for (const f of row.reference_sounds.reference_features) {
+      if (defaultRegistry.isCurrent(f.strategy_id, f.algorithm_version)) features[f.strategy_id] = f.features;
+    }
+    return [
+      {
+        referenceId: row.reference_sound_id,
+        name: row.reference_sounds.name,
+        variant: row.variant,
+        midiNote: row.midi_note,
+        noteName: row.note_name,
+        velocity: row.velocity,
+        isSynthetic: row.reference_sounds.is_synthetic,
+        features,
+      },
+    ];
+  });
+}

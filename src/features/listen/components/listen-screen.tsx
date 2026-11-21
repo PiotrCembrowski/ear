@@ -1,28 +1,72 @@
 "use client";
 
 import { Mic, MicOff, ShieldCheck } from "lucide-react";
+import { useEffect } from "react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cx } from "@/components/ui/cx";
 import { Spinner } from "@/components/ui/spinner";
-import type { ListenController, ListenState } from "../listen-controller";
+import type { ListenController, ListenDefaults, ListenMode, ListenState } from "../listen-controller";
 import { LISTEN_ERRORS, PAUSED_MESSAGES } from "../messages";
 import { useListenController, useListenState, useLiveSnapshot } from "../use-listen";
 import { DevicePicker } from "./device-picker";
 import { LevelMeter } from "./level-meter";
 import { LiveVisualizer } from "./live-visualizer";
+import { ClosestSetup, CompareSetup } from "./mode-setup";
+import { ModeTabs } from "./mode-tabs";
+import { ResultPanel } from "./result-panel";
 import { NoteResultCard } from "./note-result-card";
 import { SensitivityControl } from "./sensitivity-control";
 import { TunerDisplay } from "./tuner-display";
 
-export function ListenScreen({ defaults }: { defaults: { sensitivityDb: number; a4Hz: number } }) {
+export type ListenInitial = { mode: ListenMode; referenceId: string | null; instrumentId: string | null; variant: string | null };
+
+/** Keeps the URL in step with the mode, so links like /listen?mode=compare&ref=… can be shared and reloaded. */
+function writeUrl(params: Record<string, string | null>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value) query.set(key, value);
+  const text = query.toString();
+  window.history.replaceState(null, "", text ? `?${text}` : window.location.pathname);
+}
+
+export function ListenScreen({
+  defaults,
+  initial,
+  instruments,
+}: {
+  defaults: ListenDefaults;
+  initial: ListenInitial;
+  instruments: Array<{ id: string; name: string }>;
+}) {
   const controller = useListenController(defaults);
   const state = useListenState(controller);
   const listening = state.status === "listening";
 
+  // Apply the mode, reference and instrument from the URL once.
+  useEffect(() => {
+    controller.selectMode(initial.mode);
+    if (defaults.signedIn && initial.referenceId) void controller.loadReference(initial.referenceId);
+    if (defaults.signedIn && initial.instrumentId) void controller.loadInstrument(initial.instrumentId, initial.variant);
+  }, [controller, initial, defaults.signedIn]);
+
+  const urlFor = (mode: ListenMode, closest: { instrumentId: string | null; variant: string | null } | null = null) => {
+    const compare = state.compare.status === "empty" ? null : state.compare.referenceId;
+    const instrumentId = closest ? closest.instrumentId : state.closest.status === "empty" ? null : state.closest.instrumentId;
+    const variant = closest ? closest.variant : state.closest.status === "empty" ? null : state.closest.variant;
+    return { mode: mode === "identify" ? null : mode, ref: compare, instrument: instrumentId, variant };
+  };
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div className="flex flex-col gap-6">
+      <ModeTabs
+        mode={state.mode}
+        onChange={(mode) => {
+          controller.selectMode(mode);
+          writeUrl(urlFor(mode));
+        }}
+      />
+    <div id="listen-mode-panel" role="tabpanel" aria-labelledby={`mode-tab-${state.mode}`} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <section
         aria-labelledby="tuner-heading"
         className={cx(
@@ -44,6 +88,16 @@ export function ListenScreen({ defaults }: { defaults: { sensitivityDb: number; 
       </section>
 
       <aside className="flex flex-col gap-6" aria-label="Listening settings and results">
+        {state.mode === "compare" && <CompareSetup state={state} signedIn={defaults.signedIn} />}
+        {state.mode === "closest" && (
+          <ClosestSetup
+            state={state}
+            controller={controller}
+            signedIn={defaults.signedIn}
+            instruments={instruments}
+            onChange={(instrumentId, variant) => writeUrl(urlFor("closest", { instrumentId, variant }))}
+          />
+        )}
         <Card aria-labelledby="input-heading">
           <CardHeader>
             <CardTitle id="input-heading">Input</CardTitle>
@@ -71,7 +125,7 @@ export function ListenScreen({ defaults }: { defaults: { sensitivityDb: number; 
           </CardContent>
         </Card>
 
-        <NoteResultCard note={state.lastNote} />
+        {state.mode === "identify" && <NoteResultCard state={state} controller={controller} signedIn={defaults.signedIn} />}
 
         <p className="flex gap-2 text-xs leading-relaxed text-ink-muted">
           <ShieldCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
@@ -81,6 +135,8 @@ export function ListenScreen({ defaults }: { defaults: { sensitivityDb: number; 
           </span>
         </p>
       </aside>
+    </div>
+      {state.mode !== "identify" && <ResultPanel state={state} controller={controller} />}
     </div>
   );
 }
