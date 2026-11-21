@@ -71,29 +71,51 @@ mic (getUserMedia; echoCancellation/noiseSuppression/autoGainControl = false; ch
 ```
 
 - The AudioContext isn't forced to a fixed rate: Firefox refuses to connect a mic to a context with a different rate. The engine resamples any input rate to the 22,050 Hz analysis rate, which is also used for reference features.
-- **Event detection.** Frames are 256 samples (≈11.6 ms) at 22,050 Hz.
-  - RMS is measured in dBFS against an adaptive noise floor (the 10th percentile over the last 3 s).
-  - The start threshold is floor + sensitivity (6–30 dB, default 12).
-  - The end threshold is 4 dB lower (hysteresis), held for 200 ms.
-  - 100 ms of pre-roll is kept so the attack isn't lost.
-  - Events under 80 ms are "too short"; events are capped at 5 s.
-  - Spectral-flux onsets split notes played back to back.
+- **Event detection** (`event-detector.ts`) runs at the input rate, on frames of about 11.6 ms.
+  - The first 250 ms only measure the background (a short "calibrating" moment after Start).
+  - The noise floor is the 10th percentile of non-event frame levels over the last 3 s, clamped to −80…−30 dBFS.
+  - A sound starts when the level is at least floor + sensitivity (6–30 dB, default 12) for 2 frames. It ends when the level stays below that threshold minus 4 dB (hysteresis) for 200 ms, or after 5 s, which then needs quiet before re-triggering.
+  - 100 ms of pre-roll is kept so the attack isn't lost. Events under 80 ms are "too short".
+  - Spectral-flux spikes split notes played back to back. A spike is provisional for 3 frames: if the level falls away, it was the sound stopping, not a new note.
+  - The only raw audio kept is a ring buffer of about 150 ms. Event audio is handed to the analyzer frame by frame.
+- **Streaming analyzers keep features, not audio.** The pitch analyzer keeps per-frame f0 estimates; the timbre analyzer keeps per-frame features. Neither stores the raw event.
 - Stop, unmount, `pagehide` and the tab going to the background all stop every track and close the AudioContext, so the browser's mic indicator turns off.
 - `extract(clip)` (batch) pushes the clip through the same `LiveAnalyzer` used live. Tests check that 128-sample blocks give identical results.
 
 ## Strategies
 
-- **pitch:**
-  - MPM with 2048-sample windows (4096 below ~100 Hz) and a hop of 512.
-  - Skips ~60 ms of attack, keeps frames with clarity ≥ 0.9, and takes the median f0.
-  - Compares against the reference's *measured* f0 and reports the nominal note at the user's A4.
-  - Score = `100·cos²(π·min(|cents|,50)/100)`: 0¢→100, 5¢→98, 10¢→90, 25¢→50, ≥50¢→0.
-  - Flags octave errors, unstable pitch and multiple notes. In compare mode it may finish after ~0.6 s of stable pitch.
-- **timbre:**
-  - MFCC c1–c12, spectral centroid, rolloff and RMS envelope at ~20 frames/s.
-  - Compared with DTW inside a Sakoe-Chiba band; score = `100·exp(−d/τ)`, with τ calibrated by `scripts/evaluate-engine.ts`.
-  - Breakdown weights: MFCC 0.6, envelope 0.15, centroid 0.15, rolloff 0.1.
-- **Reference features come from the reference's detected sound event**, capped at 5 s, so live and reference sides are comparable.
+- **pitch** (`strategies/pitch.ts`, version 1.0.0):
+  - **Windows:** MPM (`pitchy`) every 512 samples on a 2048-sample window. A 4096-sample window is used below 120 Hz or when clarity is low.
+  - **High notes:** periods shorter than 40 samples are refined over k = 4, 16, 64… periods, which cuts the error by about k. C8 is accurate to 0.1 cents on a sine.
+  - **Summary:** skips 60 ms of attack, keeps frames with clarity ≥ 0.9, and clusters them into notes (±50 cents). The main cluster's median is f0.
+  - **Comparison:** against the reference's *measured* f0. Score = `100·cos²(π·min(|cents|,50)/100)`: 0¢→100, 5¢→98, 10¢→90, 25¢→50, ≥50¢→0.
+  - **Warnings:** octave error (k octaves away, within 50 cents), unstable pitch (σ > 15 cents), multiple notes, no clear pitch.
+  - **Identify mode:** `identifyNote()` returns the note name, Hz, cents at the user's A4 and a confidence level (high/medium/low).
+- **timbre** (`strategies/timbre.ts`, version 1.0.0):
+  - **Frame features** (2048 samples, hop 1024, about 21.5 frames/s): MFCC c1–c12 with log mel energies floored at −100 dB absolute and 60 dB below the frame's peak band, so volume and faint hiss don't move them; power-weighted spectral centroid and rolloff; per-frame RMS.
+  - **Fine envelope:** RMS every 256 samples (about 11.6 ms), so fast sounds like claps and knocks keep their shape.
+  - **Trimming:** only the body is compared. Frames more than 35 dB below the loudest frame are trimmed from both ends.
+  - **Sub-scores:**
+    - MFCC sequences: DTW with a Sakoe–Chiba band (25%) and relaxed endpoints (10%);
+    - envelope shape on normalized time;
+    - brightness and rolloff as octave ratios;
+    - length ratio.
+  - **Curve:** each sub-score is `100 / (1 + (d/d₅₀)^p)`, with d₅₀ and p in `TIMBRE_CALIBRATION`.
+  - **Weights:** MFCC 0.5, envelope 0.15, brightness 0.15, rolloff 0.1, length 0.1.
+  - **Known characteristic:** sounds with identical spectra but different shapes (steady noise vs a noise burst) still score fairly high, because tone colour carries most of the weight.
+- **Calibration:** `npm run engine:evaluate` prints score distributions for labelled pairs. On synthetic pairs:
+
+  | Pair | Score |
+  |---|---|
+  | Same note | 100 |
+  | +7¢ | ~95 |
+  | +20¢ | ~65 |
+  | A semitone or an octave apart | 0 |
+  | Same sound re-played with noise | 82–99 |
+  | Different kinds of sound | 10–46, median 19 |
+
+  Add real recordings to `fixtures/real/` to refine the calibration.
+- **Reference features come from the reference's main detected sound event** (`reference-features.ts`), capped at 5 s, so live and reference sides are comparable. Files are padded with 300 ms of silence before detection, so a sample that starts exactly at its attack keeps that attack.
 - **Closest match:**
   - piano uses `pitch`, with timbre as the tie-break between velocity layers;
   - timbre instruments get a quick first pass on summary vectors, then DTW on the top 20.

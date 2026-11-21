@@ -2,7 +2,7 @@
 
 Play or make a sound into your microphone, and SoundMatch analyses it live in your browser. It identifies musical notes, compares sounds against a reference library, and shows clear, honest results. **Your audio never leaves your device.**
 
-> Status: built in phases. **Phases 2–3 are complete**: foundation (configuration, design tokens, database schema, Row Level Security, storage) plus accounts (sign up, sign in, password reset, profile, protected dashboard). The Listen screen comes next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
+> Status: built in phases. **Phases 2–4 are complete**: foundation (configuration, design tokens, database schema, Row Level Security, storage), accounts (sign up, sign in, password reset, profile, protected dashboard) and the audio engine (pitch detection, sound-event detection, pitch and timbre comparison, with tests and a calibration report). The live Listen screen comes next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ## Requirements
 
@@ -95,6 +95,7 @@ Then open <http://localhost:3000>. Microphone access needs HTTPS; `localhost` is
 | `npm run typecheck` | TypeScript, including the compile-time database type checks |
 | `npm test` | Unit tests. Database tests are skipped unless `TEST_DATABASE_URL` is set. |
 | `npm run db:test:reset` | Rebuilds the local test database from the migrations |
+| `npm run engine:evaluate` | Prints the engine's score distributions on labelled sound pairs (add `-- --verbose` for every pair) |
 
 ### Database tests (optional, local Postgres)
 

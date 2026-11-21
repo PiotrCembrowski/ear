@@ -12,5 +12,21 @@ export default defineConfig([
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
+  {
+    // The audio engine must stay pure TypeScript so it runs unchanged in a Web
+    // Worker and in Node: no React, Next.js, Supabase, app code or browser globals.
+    files: ["src/lib/audio-engine/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["react", "react-*", "next", "next/*", "@supabase/*", "@/*"], message: "The audio engine must not depend on app or framework code." },
+          ],
+        },
+      ],
+      "no-restricted-globals": ["error", "window", "document", "navigator", "AudioContext", "localStorage"],
+    },
+  },
   globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts", "public/worklets/**"]),
 ]);

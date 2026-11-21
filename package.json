@@ -14,14 +14,17 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:test:reset": "tsx scripts/db/reset-test-db.ts"
+    "db:test:reset": "tsx scripts/db/reset-test-db.ts",
+    "engine:evaluate": "tsx scripts/evaluate-engine.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.119.2",
+    "fft.js": "4.0.4",
     "geist": "1.9.2",
     "lucide-react": "1.77.0",
     "next": "16.4.6",
+    "pitchy": "4.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "server-only": "0.0.1",
@@ -35,6 +38,7 @@
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.4.6",
+    "meyda": "5.6.3",
     "pg": "8.23.1",
     "tailwindcss": "4.3.5",
     "tsx": "4.23.15",
