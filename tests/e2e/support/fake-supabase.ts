@@ -155,6 +155,21 @@ export function startFakeSupabase(port = FAKE_SUPABASE_PORT): http.Server {
         return send({ id, aud: "authenticated", role: "authenticated", email: id === ADMIN_ID ? "admin@example.test" : "member@example.test", app_metadata: {}, user_metadata: {} });
       }
 
+      // Auth admin + logout (account deletion)
+      if (method === "GET" && path.startsWith("/auth/v1/admin/users/")) {
+        return send({ id: path.split("/").pop(), aud: "authenticated", role: "authenticated", email: "member@example.test", app_metadata: {}, user_metadata: {} });
+      }
+      if (method === "DELETE" && path.startsWith("/auth/v1/admin/users/")) {
+        log.push(`delete user ${path.split("/").pop()}`);
+        return send({});
+      }
+      if (method === "POST" && path === "/auth/v1/logout") return send({}, 204);
+
+      if (method === "PATCH" && path === "/rest/v1/profiles") {
+        log.push(`update profiles ${body}`);
+        return send([{ id: userIdFrom(request) }]);
+      }
+
       // PostgREST reads
       if (method === "GET" && path === "/rest/v1/profiles") {
         const id = userIdFrom(request);

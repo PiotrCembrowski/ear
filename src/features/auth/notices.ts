@@ -10,6 +10,7 @@ export const NOTICES = {
   "email-confirmed": { tone: "success", text: "Your email is confirmed. Welcome to SoundMatch!" },
   "link-invalid": { tone: "danger", text: "That link has expired or was already used. Please request a new one." },
   "session-ended": { tone: "info", text: "Your session has ended. Please sign in again." },
+  "account-deleted": { tone: "info", text: "Your account and history have been deleted. Thanks for trying SoundMatch." },
   "reference-created": { tone: "success", text: "Reference added. Its features were computed, so it's ready to compare." },
   "reference-deleted": { tone: "success", text: "Reference deleted." },
 } as const satisfies Record<string, { tone: AlertTone; text: string }>;

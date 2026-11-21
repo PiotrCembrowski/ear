@@ -187,6 +187,16 @@ mic (getUserMedia; echoCancellation/noiseSuppression/autoGainControl = false; ch
   - Series colours (`--color-series-1` blue = you, `--color-series-2` orange = reference, also dashed) passed the data-viz palette validator on the dark surface.
   - It has a legend, a hover and arrow-key crosshair with tooltip, a written summary, and a "Show data" table.
 
+## Settings and account
+
+- **Profile settings** (`a4Hz`, `sensitivityDb`, `saveHistory`) are validated by Zod (`settingsFormSchema`) and again by the database's CHECK constraints. Listen reads them on page load.
+- **The default microphone** is stored per browser (localStorage), because device IDs are specific to each browser and site. Settings and Listen share the same key.
+- **Delete account:** requires typing DELETE, then `auth.admin.deleteUser` (secret key). Profile, history and rate-limit counters go by cascade; there is no user audio to delete. The session cookies are then cleared.
+
+## Accessibility checks
+
+`tests/e2e/accessibility.spec.ts` runs axe-core (WCAG 2.2 A/AA rule set) and a 360 px "no horizontal scrolling" check on every page: public, signed-in, admin, and the Listen screen mid-session. Automated checks catch only part of the problems; the manual checklist covers keyboard, screen-reader and reduced-motion behaviour.
+
 ## Data model (see `supabase/migrations/`)
 
 - `profiles`: `role` (`user` | `admin`) and `settings` (`a4Hz`, `sensitivityDb`, `saveHistory`).

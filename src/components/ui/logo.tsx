@@ -28,11 +28,12 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
-export function Logo({ className }: { className?: string }) {
+/** `compact`: on very small screens show only the mark (the name stays available to screen readers). */
+export function Logo({ className, compact = false }: { className?: string; compact?: boolean }) {
   return (
     <span className={cx("inline-flex items-center gap-2.5", className)}>
       <LogoMark />
-      <span className="text-lg font-semibold tracking-tight text-ink">{APP_NAME}</span>
+      <span className={cx("text-lg font-semibold tracking-tight text-ink", compact && "max-[400px]:sr-only")}>{APP_NAME}</span>
     </span>
   );
 }

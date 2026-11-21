@@ -48,7 +48,16 @@ Use the deployed **https** site, or `npm run dev` on `localhost` for desktop. Mo
 - [ ] **Bluetooth headset** in call mode (if available). The low-quality input warning appears.
 - [ ] Open the site over plain **http** on a LAN IP (not localhost). "A secure connection is needed" appears.
 
-## 6. Accessibility
+## 6. Compare, closest match, history and settings (signed in)
+- [ ] In the **Library**, press **Compare** on a piano note. Play that note: a score appears about 0.6 s after the note starts, then "Saved to your history".
+- [ ] Play a different note. The score is low and the breakdown explains why ("… cents from the reference").
+- [ ] **Closest match** → Piano → play a note. The top match is that note.
+- [ ] Open **History**: the results are listed, search and the type filter work, details re-open, and Delete asks for confirmation.
+- [ ] **Settings**: set A4 to 442 and reopen Listen. Readings shift by about 8 cents for a 440 Hz tone.
+- [ ] **Settings**: turn off "Save results to my history automatically". Results now show "Not saved…" with a **Save this result** button.
+- [ ] **Settings → Delete account** (use a test account). Without typing DELETE it refuses. With DELETE you are signed out, and signing in with that account fails.
+
+## 7. Accessibility
 - [ ] Keyboard only: Tab reaches Start/Stop, the device picker, the sensitivity slider and the view toggle. Focus rings are visible, and Enter/Space work.
 - [ ] Screen reader (VoiceOver or NVDA): the level meter is announced as a meter with a text value, and detected notes are announced ("Detected A4, plus 5 cents") at most every 1.5 s.
 - [ ] Turn on "Reduce motion" in the OS. The pulsing dot and the needle/meter animations stop.

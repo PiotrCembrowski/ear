@@ -52,3 +52,26 @@ describe("profile schemas", () => {
     expect(readProfileSettings({ a4Hz: 9999 }).a4Hz).toBe(440);
   });
 });
+
+describe("settings form", () => {
+  it("accepts typical values and rounds them", async () => {
+    const { settingsFormSchema } = await import("./profile");
+    expect(settingsFormSchema.parse({ a4Hz: "442.04", sensitivityDb: "14.6", saveHistory: false })).toEqual({ a4Hz: 442, sensitivityDb: 15, saveHistory: false });
+  });
+
+  it("rejects out-of-range or non-numeric values with clear messages", async () => {
+    const { settingsFormSchema } = await import("./profile");
+    for (const a4Hz of ["300", "500", "abc", ""]) {
+      const result = settingsFormSchema.safeParse({ a4Hz, sensitivityDb: "12", saveHistory: true });
+      expect(result.success, a4Hz).toBe(false);
+      expect(result.error?.issues[0]?.message).toMatch(/between 400 and 480 Hz/);
+    }
+    expect(settingsFormSchema.safeParse({ a4Hz: "440", sensitivityDb: "40", saveHistory: true }).success).toBe(false);
+  });
+
+  it("requires typing DELETE to delete an account", async () => {
+    const { deleteAccountSchema } = await import("./profile");
+    expect(deleteAccountSchema.safeParse({ confirmation: " DELETE " }).success).toBe(true);
+    expect(deleteAccountSchema.safeParse({ confirmation: "delete" }).success).toBe(false);
+  });
+});

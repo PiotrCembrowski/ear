@@ -38,3 +38,24 @@ export function readProfileSettings(raw: unknown): ProfileSettings {
 export const updateProfileSchema = z.object({
   displayName: displayNameSchema,
 });
+
+/** Settings form: numbers arrive as text, the checkbox as "on" or missing. */
+const a4Message = `Use a value between ${A4.minHz} and ${A4.maxHz} Hz (440 is standard).`;
+export const settingsFormSchema = z.object({
+  a4Hz: z.coerce
+    .number({ message: a4Message })
+    .min(A4.minHz, a4Message)
+    .max(A4.maxHz, a4Message)
+    .transform((v) => Math.round(v * 10) / 10),
+  sensitivityDb: z.coerce
+    .number({ message: "Choose a sensitivity." })
+    .min(SENSITIVITY_DB.min, "Choose a sensitivity.")
+    .max(SENSITIVITY_DB.max, "Choose a sensitivity.")
+    .transform((v) => Math.round(v)),
+  saveHistory: z.boolean(),
+});
+
+/** Account deletion must be confirmed by typing DELETE. */
+export const deleteAccountSchema = z.object({
+  confirmation: z.string().trim().refine((v) => v === "DELETE", "Type DELETE (in capitals) to confirm."),
+});

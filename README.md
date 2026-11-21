@@ -8,9 +8,10 @@ Play or make a sound into your microphone, and SoundMatch analyses it live in yo
 > - the audio engine;
 > - the **live Listen screen** (`/listen`, note identification, works without an account);
 > - the **reference library** (`/library`) and **admin tools** (`/admin/references`, `/admin/import`);
-> - **live compare and closest match** on the Listen screen, and **history** (`/history`).
+> - **live compare and closest match** on the Listen screen, and **history** (`/history`);
+> - the landing page, full **settings** (A4, sensitivity, history saving, default microphone, delete account) and an accessibility pass.
 >
-> The full landing page, the remaining settings and polish come next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
+> Phase 9 (verification against a real Supabase project, final README) is next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ## Requirements
 

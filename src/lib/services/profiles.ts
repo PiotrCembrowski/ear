@@ -46,3 +46,11 @@ export async function updateOwnDisplayName(userId: string, displayName: string |
   if (error) throw new ServiceError("Could not update profile", error);
   if (!data || data.length !== 1) throw new ServiceError("Profile not found or not permitted");
 }
+
+/** Replaces the user's settings (already validated). RLS limits the update to their own row. */
+export async function updateOwnSettings(userId: string, settings: ProfileSettings): Promise<void> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.from("profiles").update({ settings }).eq("id", userId).select("id");
+  if (error) throw new ServiceError("Could not update settings", error);
+  if (!data || data.length !== 1) throw new ServiceError("Profile not found or not permitted");
+}
