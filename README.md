@@ -2,7 +2,14 @@
 
 Play or make a sound into your microphone, and SoundMatch analyses it live in your browser. It identifies musical notes, compares sounds against a reference library, and shows clear, honest results. **Your audio never leaves your device.**
 
-> Status: built in phases. **Phases 2–5 are complete**: foundation (configuration, design tokens, database schema, Row Level Security, storage), accounts, the audio engine (pitch detection, sound-event detection, pitch and timbre comparison), and the **live Listen screen** at `/listen`, which identifies notes from the microphone and works without an account. The reference library and admin import come next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
+> Status: built in phases. **Phases 2–6 are complete**:
+> - foundation: configuration, design tokens, database schema, Row Level Security, storage;
+> - accounts;
+> - the audio engine;
+> - the **live Listen screen** (`/listen`, note identification, works without an account);
+> - the **reference library** (`/library`) and **admin tools** (`/admin/references`, `/admin/import`).
+>
+> Live comparison against references and history come next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ## Requirements
 
@@ -97,6 +104,7 @@ Then open <http://localhost:3000>. Microphone access needs HTTPS; `localhost` is
 | `npm run db:test:reset` | Rebuilds the local test database from the migrations |
 | `npm run test:e2e` | Playwright smoke tests in Chromium with a fake microphone (builds and starts the app) |
 | `npm run build:worklets` | Compiles the AudioWorklet to `public/worklets/` (runs automatically before `dev` and `build`) |
+| `npm run features:recompute` | Recomputes reference features after an engine version change (needs `SUPABASE_SECRET_KEY`; Node 22+; add `-- --dry` to only list) |
 | `npm run engine:evaluate` | Prints the engine's score distributions on labelled sound pairs (add `-- --verbose` for every pair) |
 
 ### Database tests (optional, local Postgres)
@@ -108,6 +116,34 @@ TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/soundmatch_test np
 ```
 
 The test runner **drops and recreates** that database, so it refuses any host other than localhost and any database name that doesn't contain `test`.
+
+## Importing a sample set (admins)
+
+1. Sign in as an admin (see "Promote the first admin") and open **Admin → Bulk import samples** (`/admin/import`).
+2. Choose the **instrument** and a **variant** name for this set (for example `salamander` or `grand-default`), then enter the **license** and a **source link or attribution**. All of these are required, so every sound's origin is documented.
+3. Drop the files, or a `.zip`. One note per file. These names are understood:
+   - `069_A4_v80.wav`, `A#4.wav`, `As4.wav`, `Bb4.flac`, `A-sharp-4.wav`;
+   - bare MIDI numbers (`60.wav`);
+   - Salamander-style `C4v8.flac`;
+   - dynamics such as `Piano.ff.A4.aiff`.
+4. Check the **preview table**. Each file is marked:
+   - *Ready*;
+   - *Duplicate* (already stored, or twice in this batch);
+   - *Invalid name* (no note found, or outside the instrument's range);
+   - *Unsupported format*;
+   - *Decode failure* (this browser can't read it; AIFF only works in Safari).
+
+   The **coverage report** says how many of the 88 keys you will have and lists the missing ones. Partial sets are allowed.
+5. Press **Import**. Each file is then:
+   - converted in the browser (mono, 44.1 kHz, 16-bit WAV, silence trimmed, at most 30 s; loudness is kept, so velocity layers stay distinct);
+   - uploaded straight to storage through a signed URL;
+   - validated and analysed on the server, which stores its pitch and timbre features.
+
+   If a file's detected pitch doesn't match its name, it is flagged ("Sounds like C4: check the file name").
+
+Free sources include the Salamander Grand Piano (CC-BY 3.0, samples every third key, so expect a partial set) and the University of Iowa Electronic Music Studios instrument samples (check their terms; AIFF files need converting outside Safari). Only import recordings you have the right to use.
+
+Single sounds (a bark, a door) are added one at a time under **Admin → Add reference**.
 
 ## Manual testing
 

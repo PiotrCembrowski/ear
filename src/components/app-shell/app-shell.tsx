@@ -6,7 +6,7 @@ import { ROUTES } from "@/lib/auth/routes";
 import { MobileNav } from "./mobile-nav";
 import { NavLinks } from "./nav-links";
 
-type ShellUser = { displayName: string | null; email: string | null };
+type ShellUser = { displayName: string | null; email: string | null; isAdmin?: boolean };
 
 function UserSummary({ user }: { user: ShellUser }) {
   const name = user.displayName ?? user.email ?? "Signed in";
@@ -42,7 +42,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
           <Logo />
         </Link>
         <nav aria-label="Main" className="flex-1">
-          <NavLinks />
+          <NavLinks isAdmin={user.isAdmin} />
         </nav>
         <div className="border-t border-line pt-3">{accountFooter}</div>
       </aside>
@@ -52,7 +52,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
         <Link href={ROUTES.dashboard} className="rounded-control" aria-label="SoundMatch dashboard">
           <Logo />
         </Link>
-        <MobileNav footer={accountFooter} />
+        <MobileNav footer={accountFooter} isAdmin={user.isAdmin} />
       </header>
 
       <main id="main-content" tabIndex={-1} className="min-w-0 px-4 py-8 focus:outline-none sm:px-8 lg:px-12 lg:py-10">

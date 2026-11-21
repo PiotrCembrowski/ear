@@ -129,11 +129,33 @@ mic (getUserMedia; echoCancellation/noiseSuppression/autoGainControl = false; ch
 
 ## Reference import and features
 
-1. The admin's browser decodes the file (any format the browser supports), downmixes it to mono, and encodes it as 16-bit WAV at 44.1 kHz (at most 30 s).
-2. The file is uploaded to the private `references` bucket under RLS (admins only).
-3. `POST /api/admin/references/[id]/features` runs the engine in Node on that WAV and stores features per `strategy_id` + `algorithm_version`.
-4. `scripts/recompute-features.ts` and an admin action reprocess references whose features are outdated.
-5. The browser fetches features (not audio) from the `/api/references/[id]/features` and `/api/instruments/[id]/features` routes, and caches them.
+- **Single sounds:** `/admin/references/new`. **Instrument sample sets:** `/admin/import`, which runs these steps:
+  1. **Preview** (`features/admin/import/plan.ts`, pure and tested). Each file gets a status before anything is saved:
+     - unsupported format;
+     - invalid name (no note found, ambiguous, or outside the instrument's range);
+     - duplicate (already stored for this instrument variant, or twice in the batch);
+     - otherwise a decode check in the browser, which gives *ok* or *decode failure*.
+
+     The coverage report counts the notes already stored plus the incoming ones, and lists the missing ones.
+  2. **Per file:** `normalizeReferenceFile` decodes with Web Audio at 44.1 kHz, downmixes, trims silence below −70 dBFS (keeping 20 ms), caps at 30 s and encodes 16-bit WAV. Loudness is **not** normalized, so velocity layers stay distinct.
+  3. **`prepare…Upload`** (Server Action): admin check, Zod validation, the storage path computed on the server (`piano/<variant>/<midi>_<Note>_v<velocity>.wav`, with no `#`), a duplicate check, and a signed upload URL.
+  4. **Upload:** the browser uploads straight to Storage, so the file never passes through our server (no serverless body limits).
+  5. **`finalize…`** (Server Action):
+     - accepts only the exact path step 3 hands out;
+     - downloads the file and validates it (`analyzeReferenceWav`: WAV, at most 5 MB, at most 30 s, not silent);
+     - inserts `reference_sounds` and `instrument_samples`, and upserts features for every applicable strategy (instrument notes get pitch and timbre).
+
+     Any failure rolls everything back, file included, and an upload is discarded if its details turn out invalid. The detected pitch is returned, so mislabelled files are flagged.
+- **Outdated features:**
+  - `listOutdatedReferenceIds` finds references lacking a current-version feature for any applicable strategy.
+  - The admin page recomputes them in small batches (skipping references that already failed in this run), as does `npm run features:recompute`.
+  - Old versions are deleted only after a clean full run.
+- **Services take the Supabase client as a parameter.** Pages and actions pass the admin's own client, so RLS still applies; the script passes a secret-key client; tests pass a fake.
+- **Library:** `/library` (signed-in users).
+  - A GET search form with name/description/tag search and category and instrument filters (instrument uses `instrument_samples!inner`, sorted by path, i.e. by note).
+  - Search text is stripped of PostgREST filter syntax.
+  - Previews play through short-lived signed URLs, so private files stay private.
+  - Synthetic tones and private references are always badged.
 
 ## Data model (see `supabase/migrations/`)
 
@@ -174,4 +196,5 @@ Scores are computed in the user's browser, so they are trusted only for that use
   - `tests/db/` rebuilds a local Postgres from the migrations, using a small stand-in for Supabase's `auth` and `storage` schemas (`scripts/db/supabase-shim.sql`), and checks grants, RLS, constraints and triggers.
   - Phase 9 adds a script that runs the same checks against a real Supabase project.
 - **Design tokens:** WCAG AA contrast is checked in `tests/ui/design-tokens.test.ts`.
+- **Signed-in browser flows** (library, admin import): Playwright runs against a test-only fake Supabase (`tests/e2e/support/fake-supabase.ts`) that answers the Auth, PostgREST and Storage calls those pages make. It doesn't enforce RLS; the database tests do that.
 - **Live audio:** a Playwright smoke test uses Chromium's fake microphone, plus a manual checklist for Chrome, Firefox and Safari (desktop and iOS).

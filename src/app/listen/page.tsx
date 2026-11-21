@@ -30,7 +30,7 @@ export default async function ListenPage() {
   );
 
   if (user) {
-    return <AppShell user={{ displayName: profile?.displayName ?? null, email: user.email }}>{content}</AppShell>;
+    return <AppShell user={{ displayName: profile?.displayName ?? null, email: user.email, isAdmin: profile?.role === "admin" }}>{content}</AppShell>;
   }
   return (
     <div className="min-h-dvh">

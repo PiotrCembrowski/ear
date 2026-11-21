@@ -19,11 +19,13 @@
     "db:test:reset": "tsx scripts/db/reset-test-db.ts",
     "engine:evaluate": "tsx scripts/evaluate-engine.ts",
     "build:worklets": "tsc -p tsconfig.worklets.json",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "features:recompute": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/recompute-features.ts"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.119.2",
+    "fflate": "0.8.3",
     "fft.js": "4.0.4",
     "geist": "1.9.2",
     "lucide-react": "1.77.0",

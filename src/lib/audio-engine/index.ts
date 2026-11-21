@@ -10,7 +10,15 @@ export { resample, StreamingResampler } from "./resampler";
 export { SoundEventDetector, detectEvents, DEFAULT_DETECTOR_OPTIONS, type DetectorOptions, type DetectorOutput, type DetectorState } from "./event-detector";
 export { levelWarnings, noiseWarning, uniqueWarnings } from "./quality";
 export { StrategyRegistry, defaultRegistry } from "./registry";
-export { extractReferenceFeatures, mainEvent, type ReferenceExtraction } from "./reference-features";
+export {
+  analyzeReferenceWav,
+  extractReferenceFeatures,
+  mainEvent,
+  REFERENCE_AUDIO_LIMITS,
+  ReferenceAudioError,
+  type ReferenceAnalysis,
+  type ReferenceExtraction,
+} from "./reference-features";
 export {
   pitchStrategy,
   identifyNote,

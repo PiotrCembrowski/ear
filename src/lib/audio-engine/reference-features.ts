@@ -7,9 +7,11 @@
  * silence or long tail doesn't count against the user.
  */
 import { MAX_EVENT_MS } from "./constants";
+import { defaultRegistry, type StrategyRegistry } from "./registry";
+import { decodeWav, WavFormatError, type WavInfo } from "./wav";
 import { detectEvents, type DetectedEvent } from "./event-detector";
 import { amplitudeToDb } from "./math";
-import type { AudioClip, ComparisonStrategy, FeatureSet } from "./types";
+import type { AudioClip, ComparisonStrategy, FeatureSet, ReferenceMeta } from "./types";
 
 /** Used when the detector finds no usable event. */
 const FALLBACK_THRESHOLD_DB = -60;
@@ -89,4 +91,55 @@ export function extractReferenceFeatures(clip: AudioClip, strategies: readonly C
     },
     features: strategies.map((strategy) => strategy.extract(event.clip)),
   };
+}
+
+/** Limits for stored reference WAVs (the importer normalizes to fit them). */
+export const REFERENCE_AUDIO_LIMITS = {
+  maxBytes: 5 * 1024 * 1024,
+  /** 30 s, plus a little slack for rounding by encoders. */
+  maxDurationMs: 30_100,
+  minDurationMs: 50,
+} as const;
+
+export type ReferenceAudioErrorCode = "not-wav" | "too-large" | "too-long" | "too-short" | "silent";
+
+export class ReferenceAudioError extends Error {
+  constructor(
+    readonly code: ReferenceAudioErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ReferenceAudioError";
+  }
+}
+
+export type ReferenceAnalysis = ReferenceExtraction & { info: WavInfo };
+
+/**
+ * Validates a stored reference WAV and extracts features for every strategy
+ * that applies to it (instrument notes get both pitch and timbre: timbre is
+ * the tie-break between velocity layers in closest-match). Runs in Node on
+ * the server, and in the recompute script.
+ */
+export function analyzeReferenceWav(bytes: Uint8Array, meta: ReferenceMeta, registry: StrategyRegistry = defaultRegistry): ReferenceAnalysis {
+  if (bytes.byteLength > REFERENCE_AUDIO_LIMITS.maxBytes) {
+    throw new ReferenceAudioError("too-large", `The file is larger than ${REFERENCE_AUDIO_LIMITS.maxBytes / 1024 / 1024} MB.`);
+  }
+  let decoded: ReturnType<typeof decodeWav>;
+  try {
+    decoded = decodeWav(bytes);
+  } catch (error) {
+    if (error instanceof WavFormatError) throw new ReferenceAudioError("not-wav", error.message);
+    throw error;
+  }
+  if (decoded.info.durationMs > REFERENCE_AUDIO_LIMITS.maxDurationMs) throw new ReferenceAudioError("too-long", "The sound is longer than 30 seconds.");
+  if (decoded.info.durationMs < REFERENCE_AUDIO_LIMITS.minDurationMs) throw new ReferenceAudioError("too-short", "The sound is too short to analyse.");
+
+  const strategies = registry.list().filter((strategy) => strategy.appliesTo(meta));
+  try {
+    return { info: decoded.info, ...extractReferenceFeatures(decoded, strategies) };
+  } catch (error) {
+    if (error instanceof Error && /no sound/.test(error.message)) throw new ReferenceAudioError("silent", "The file contains no audible sound.");
+    throw error;
+  }
 }

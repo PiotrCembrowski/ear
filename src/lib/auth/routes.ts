@@ -16,6 +16,10 @@ export const ROUTES = {
   authConfirm: "/auth/confirm",
   dashboard: "/dashboard",
   listen: "/listen",
+  library: "/library",
+  adminReferences: "/admin/references",
+  adminNewReference: "/admin/references/new",
+  adminImport: "/admin/import",
   settings: "/settings",
 } as const;
 

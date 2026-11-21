@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cx } from "@/components/ui/cx";
-import { isNavItemActive, PRIMARY_NAV } from "@/features/navigation/nav-items";
+import { isNavItemActive, navItemsFor } from "@/features/navigation/nav-items";
 
 /** Sidebar links; highlights the current section and marks it aria-current. */
-export function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+export function NavLinks({ onNavigate, isAdmin = false }: { onNavigate?: () => void; isAdmin?: boolean }) {
   const pathname = usePathname();
   return (
     <ul className="flex flex-col gap-1">
-      {PRIMARY_NAV.map(({ href, label, icon: Icon }) => {
+      {navItemsFor(isAdmin).map(({ href, label, icon: Icon }) => {
         const active = isNavItemActive(pathname, href);
         return (
           <li key={href}>

@@ -331,3 +331,41 @@ describe("engine purity", () => {
     }
   });
 });
+
+describe("analyzeReferenceWav (server-side reference analysis)", () => {
+  // Imported lazily to keep this block self-contained.
+  const load = () => import("./reference-features");
+  const wav = async (samples: Float32Array, sampleRate = 44100) => (await import("./wav")).encodeWav16({ samples, sampleRate });
+
+  it("extracts pitch and timbre for an instrument note, timbre only for other sounds", async () => {
+    const { analyzeReferenceWav } = await load();
+    const bytes = await wav(concat(silence(0.3, 44100), syntheticPianoNote(69, 1.2, 44100), silence(0.3, 44100)));
+    const note = analyzeReferenceWav(bytes, { categorySlug: "piano", instrumentSlug: "piano", midiNote: 69 });
+    expect(note.features.map((f) => f.strategyId)).toEqual(["pitch", "timbre"]);
+    expect(identifyNote(note.features[0] as PitchFeatures)?.name).toBe("A4");
+    expect(note.info).toMatchObject({ sampleRate: 44100, channels: 1 });
+    const other = analyzeReferenceWav(bytes, { categorySlug: "animals" });
+    expect(other.features.map((f) => f.strategyId)).toEqual(["timbre"]);
+  });
+
+  it("rejects non-WAV data, over-long, too-short and silent files with clear codes", async () => {
+    const { analyzeReferenceWav, ReferenceAudioError } = await load();
+    const meta = { categorySlug: "nature" };
+    const codeOf = (fn: () => unknown) => {
+      try {
+        fn();
+      } catch (error) {
+        return error instanceof ReferenceAudioError ? error.code : "other";
+      }
+      return "none";
+    };
+    expect(codeOf(() => analyzeReferenceWav(new TextEncoder().encode("not audio at all, sorry"), meta))).toBe("not-wav");
+    expect(codeOf(() => analyzeReferenceWav(new Uint8Array(6 * 1024 * 1024), meta))).toBe("too-large");
+    const long = await wav(new Float32Array(8000 * 31).fill(0.1), 8000);
+    expect(codeOf(() => analyzeReferenceWav(long, meta))).toBe("too-long");
+    const short = await wav(new Float32Array(100).fill(0.1), 44100);
+    expect(codeOf(() => analyzeReferenceWav(short, meta))).toBe("too-short");
+    const silent = await wav(new Float32Array(44100), 44100);
+    expect(codeOf(() => analyzeReferenceWav(silent, meta))).toBe("silent");
+  });
+});

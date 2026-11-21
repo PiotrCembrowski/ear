@@ -13,5 +13,5 @@ export default async function SignedInLayout({ children }: { children: React.Rea
   if (!user) redirect(ROUTES.signIn);
   const profile = await getCurrentProfile();
 
-  return <AppShell user={{ displayName: profile?.displayName ?? null, email: user.email }}>{children}</AppShell>;
+  return <AppShell user={{ displayName: profile?.displayName ?? null, email: user.email, isAdmin: profile?.role === "admin" }}>{children}</AppShell>;
 }

@@ -9,7 +9,7 @@ import { NavLinks } from "./nav-links";
  * Collapsible navigation for small screens. Escape closes it, focus moves
  * into the panel when it opens and back to the toggle when it closes.
  */
-export function MobileNav({ footer }: { footer: ReactNode }) {
+export function MobileNav({ footer, isAdmin = false }: { footer: ReactNode; isAdmin?: boolean }) {
   const [open, setOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -47,7 +47,7 @@ export function MobileNav({ footer }: { footer: ReactNode }) {
           className="absolute inset-x-0 top-full z-40 border-b border-line bg-surface px-4 py-4 shadow-card"
         >
           <nav aria-label="Main">
-            <NavLinks onNavigate={() => setOpen(false)} />
+            <NavLinks onNavigate={() => setOpen(false)} isAdmin={isAdmin} />
           </nav>
           <div className="mt-4 border-t border-line pt-4">{footer}</div>
         </div>
