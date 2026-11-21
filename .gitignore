@@ -29,3 +29,6 @@ next-env.d.ts
 *.pem
 .vercel
 supabase/.temp/
+
+# generated e2e fixtures
+/tests/e2e/.generated/

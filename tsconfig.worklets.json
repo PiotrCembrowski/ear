@@ -1,0 +1,17 @@
+{
+  // Compiles AudioWorklet processors to plain ES modules in public/worklets/.
+  // Worklets are loaded by URL and cannot import anything, so no bundler is needed.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "removeComments": false,
+    "outDir": "public/worklets",
+    "rootDir": "src/lib/audio-browser/worklets"
+  },
+  "include": ["src/lib/audio-browser/worklets/*.ts"],
+  "exclude": ["src/lib/audio-browser/worklets/*.test.ts"]
+}

@@ -15,6 +15,7 @@ export const ROUTES = {
   updatePassword: "/update-password",
   authConfirm: "/auth/confirm",
   dashboard: "/dashboard",
+  listen: "/listen",
   settings: "/settings",
 } as const;
 

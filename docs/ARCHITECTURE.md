@@ -78,6 +78,13 @@ mic (getUserMedia; echoCancellation/noiseSuppression/autoGainControl = false; ch
   - 100 ms of pre-roll is kept so the attack isn't lost. Events under 80 ms are "too short".
   - Spectral-flux spikes split notes played back to back. A spike is provisional for 3 frames: if the level falls away, it was the sound stopping, not a new note.
   - The only raw audio kept is a ring buffer of about 150 ms. Event audio is handed to the analyzer frame by frame.
+- **Browser pieces** (`src/lib/audio-browser/`):
+  - `microphone.ts` builds the graph above and maps `getUserMedia` failures to clear error codes.
+  - `worklets/capture-processor.ts` is compiled on its own by `tsc` into `public/worklets/` (`npm run build:worklets`, which runs before `dev` and `build`). Worklets are loaded by URL and can't import anything, so no bundler is needed.
+  - `analysis.worker.ts` is bundled by Turbopack via `new Worker(new URL(...))`.
+  - `ListenController` (`src/features/listen/`) owns the lifecycle: start inside the click (iOS), Stop (every track stopped), tab hidden → paused and mic released, device lost, and AudioContext interrupted.
+- **`ListeningSession`** (engine) combines the detector, per-event analysis and a **continuous live tuner**. The tuner runs on all audio, not only inside events, so it keeps working on a note held longer than the 5 s event cap. It shows a pitch only above the detector's end threshold.
+- **Live input ignores digital silence** (below −100 dBFS). Some microphones deliver pure zeros while starting up; learning the background from those made room hiss count as a sound. Reference files keep the old behaviour, because they are padded with silence on purpose.
 - **Streaming analyzers keep features, not audio.** The pitch analyzer keeps per-frame f0 estimates; the timbre analyzer keeps per-frame features. Neither stores the raw event.
 - Stop, unmount, `pagehide` and the tab going to the background all stop every track and close the AudioContext, so the browser's mic indicator turns off.
 - `extract(clip)` (batch) pushes the clip through the same `LiveAnalyzer` used live. Tests check that 128-sample blocks give identical results.

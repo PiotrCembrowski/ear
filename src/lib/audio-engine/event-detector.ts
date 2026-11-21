@@ -19,8 +19,8 @@
  *     ("pre-roll") is included so the attack of the note is never lost.
  *   - End: level < start threshold − 4 dB (hysteresis, so a decaying note
  *     doesn't flicker on and off) for 200 ms ("hangover"); or 5 s reached.
- *   - Split: a flux spike well above its recent median while a sound is
- *     playing ends the current event and starts a new one (two notes played
+ *   - Split: a flux spike well above its median SO FAR IN THIS EVENT while a
+ *     sound is playing ends the current event and starts a new one (two notes played
  *     back to back become two events). A spike is only provisional for 3
  *     frames (≈ 35 ms): if the level then drops away, it was the sound
  *     stopping (an abrupt stop also smears the spectrum), not a new note.
@@ -40,6 +40,14 @@ export type DetectorOptions = {
   hangoverMs: number;
   minEventMs: number;
   maxEventMs: number;
+  /**
+   * Live microphones: ignore frames of pure digital silence (below −100 dBFS).
+   * Real mics never produce them, except for a moment while starting up or
+   * when muted; learning the background from them would make the gate far
+   * too sensitive, so the room's own hiss would count as a "sound".
+   * Off for files: reference files are deliberately padded with silence.
+   */
+  ignoreDigitalSilence: boolean;
 };
 
 export const DEFAULT_DETECTOR_OPTIONS: DetectorOptions = {
@@ -48,6 +56,7 @@ export const DEFAULT_DETECTOR_OPTIONS: DetectorOptions = {
   hangoverMs: 200,
   minEventMs: MIN_EVENT_MS,
   maxEventMs: MAX_EVENT_MS,
+  ignoreDigitalSilence: false,
 };
 
 export type EventEndReason = "silence" | "max_duration" | "new_onset" | "flush";
@@ -84,6 +93,8 @@ const INITIAL_NOISE_FLOOR_DB = -70;
 const MIN_NOISE_FLOOR_DB = -80;
 const MAX_NOISE_FLOOR_DB = -30;
 const HYSTERESIS_DB = 4;
+/** Below this a frame is digital silence (16-bit audio's own noise is ≈ −98 dBFS). */
+const DIGITAL_SILENCE_DB = -100;
 const WARMUP_SECONDS = 0.25;
 const START_FRAMES = 2;
 /** Flux split rules: spike ≥ 3× the recent median, not within 150 ms of the last onset. */
@@ -278,6 +289,7 @@ export class SoundEventDetector {
     const startThreshold = this.startThreshold();
     const endThreshold = startThreshold - HYSTERESIS_DB;
 
+    if (!this.active && this.options.ignoreDigitalSilence && levelDb < DIGITAL_SILENCE_DB) return;
     this.framesSeen++;
     if (!this.active) {
       if (levelDb < endThreshold) this.needsRearm = false;
@@ -354,6 +366,9 @@ export class SoundEventDetector {
     this.quietRun = 0;
     this.onsetSample = onsetSample;
     this.lastOnsetSample = onsetSample;
+    // Judge flux spikes against this sound only: compared with the quiet frames
+    // before it, ordinary noise or vibrato would look like a "new note".
+    this.fluxHistory.length = 0;
     outputs.push({ type: "start", onsetSample, audioStartSample: audioStart });
     outputs.push({ type: "audio", samples: this.readRing(audioStart, this.sampleCount) });
   }
