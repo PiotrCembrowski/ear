@@ -13,8 +13,10 @@ import type { Database } from "./database.types";
  * requests.
  */
 export async function createServerSupabase(): Promise<SupabaseClient<Database>> {
-  const env = getPublicEnv();
+  // cookies() first: it marks the page as dynamic (rendered per request), so
+  // Next.js never tries to pre-render it at build time, when env vars may be absent.
   const cookieStore = await cookies(); // async since Next.js 15; sync access removed in 16
+  const env = getPublicEnv();
 
   return createServerClient<Database>(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
     cookies: {

@@ -35,6 +35,28 @@ This is the plan approved at the end of Phase 1, kept up to date as the build pr
 
 Features are reproducible only if the same code runs everywhere, so we use about 200 lines of commented in-house MFCC/spectral code instead. Meyda stays a **dev dependency**, used only in tests to cross-check our values.
 
+## Authentication and route protection
+
+There are three layers, each enough on its own to stop data leaking:
+
+1. **`src/proxy.ts`** (Next 16's "middleware") runs on every request.
+   - It refreshes the Supabase session cookie when the access token expires.
+   - It makes quick redirects: signed-out users are sent from protected paths (`/dashboard`, `/settings`, `/history`, `/library`, `/admin`) to `/sign-in?next=…`, and signed-in users are sent away from `/sign-in` and `/sign-up`.
+   - The rules are pure functions in `src/lib/auth/routes.ts`, with tests.
+2. **`requireUser()` / `requireAdmin()`** (`src/lib/auth/session.ts`) run at the top of every protected page, Server Action and Route Handler.
+   - They use `getClaims()`, which verifies the JWT signature, rather than `getSession()`, which only reads the cookie.
+   - Layouts are not relied on: Next.js doesn't re-run them on every client-side navigation.
+3. **Row Level Security** in Postgres, whatever the app code does.
+
+**Auth flows:**
+
+- Server Actions in `src/features/auth/actions.ts` validate input with Zod, call `src/lib/services/auth.ts`, and return a `FormState`. On success they redirect.
+- Supabase error codes become friendly messages in `auth-errors.ts`. Raw errors go to the server log.
+- Password reset and sign-up never reveal whether an email is registered.
+- `next` redirect targets pass through `safeRedirectPath()`, so the sign-in page can't be used as an open redirect.
+- `?notice=` codes come from a fixed list, so nothing in the URL can inject text into a page.
+- Email links land on `/auth/confirm`. It accepts both `token_hash` + `type` (recommended templates) and PKCE `code` links.
+
 ## Live audio pipeline (browser)
 
 ```

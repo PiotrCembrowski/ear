@@ -1,27 +1,37 @@
-import { APP_NAME } from "@/lib/config/app-config";
+import { ButtonLink } from "@/components/ui/button";
+import { Logo } from "@/components/ui/logo";
+import { ROUTES } from "@/lib/auth/routes";
 
 /**
- * Temporary home page for the foundation phase. It deliberately has no links
- * or buttons: the pages they would point to are built in later phases.
- * Replaced by the real landing page in Phase 8.
+ * Temporary home page. It links only to pages that exist (sign in / sign up).
+ * Replaced by the full landing page in Phase 8.
  */
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col justify-center gap-6 px-6 py-16">
-      <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink-subtle">Under construction</p>
-      <h1 className="bg-gradient-to-r from-brand-strong to-brand-2 bg-clip-text text-5xl font-semibold tracking-tight text-transparent">
-        {APP_NAME}
-      </h1>
-      <p className="text-lg leading-relaxed text-ink-muted">
-        Live sound analysis in your browser: identify notes, compare sounds against a reference library, and get honest,
-        explained results. Your audio never leaves your device.
-      </p>
-      <div className="rounded-card border border-line bg-surface p-5 shadow-card">
-        <p className="text-sm leading-relaxed text-ink-muted">
-          The foundation is in place: configuration, design tokens, database schema with Row Level Security, and storage
-          policies. Sign-in, the Listen screen and the reference library arrive in the next phases.
+    <div className="flex min-h-dvh flex-col">
+      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
+        <Logo />
+        <nav aria-label="Account" className="flex items-center gap-2">
+          <ButtonLink href={ROUTES.signIn} variant="ghost" size="sm">
+            Sign in
+          </ButtonLink>
+          <ButtonLink href={ROUTES.signUp} size="sm">
+            Create account
+          </ButtonLink>
+        </nav>
+      </header>
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 px-6 pb-24">
+        <h1 className="bg-gradient-to-r from-brand-strong to-brand-2 bg-clip-text text-5xl font-semibold tracking-tight text-transparent">
+          Hear how close you are.
+        </h1>
+        <p className="text-lg leading-relaxed text-ink-muted">
+          Live sound analysis in your browser: identify notes, compare sounds against a reference library, and get honest,
+          explained results. Your audio never leaves your device.
         </p>
-      </div>
-    </main>
+        <p className="text-sm text-ink-subtle">
+          SoundMatch is being built in stages. Accounts work today; the Listen screen is coming next.
+        </p>
+      </main>
+    </div>
   );
 }

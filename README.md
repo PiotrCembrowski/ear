@@ -2,7 +2,7 @@
 
 Play or make a sound into your microphone, and SoundMatch analyses it live in your browser. It identifies musical notes, compares sounds against a reference library, and shows clear, honest results. **Your audio never leaves your device.**
 
-> Status: built in phases. **Phase 2 (foundation) is complete**: configuration, design tokens, Supabase clients, database schema, Row Level Security, storage policies and seed data. There are no user-facing features yet. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
+> Status: built in phases. **Phases 2–3 are complete**: foundation (configuration, design tokens, database schema, Row Level Security, storage) plus accounts (sign up, sign in, password reset, profile, protected dashboard). The Listen screen comes next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ## Requirements
 
@@ -47,9 +47,27 @@ The migrations create:
 - the private `references` storage bucket (WAV only, 5 MB per file) and its policies;
 - the triggers that create a profile on sign-up and stop users changing their own role.
 
-### 4. Promote the first admin
+### 4. Configure Supabase Auth
 
-Sign up in the app (available from Phase 3), then run this in the SQL editor:
+In **Supabase Dashboard → Authentication**:
+
+1. **URL Configuration**
+   - **Site URL**: the same value as `NEXT_PUBLIC_SITE_URL`.
+   - **Redirect URLs**: add `http://localhost:3000/auth/confirm` and `https://<your-domain>/auth/confirm`.
+2. **Email Templates** (recommended). Edit the link in two templates so it opens our `/auth/confirm` page with a token hash. This works even when the email is opened in a different browser or on another device.
+   - **Confirm signup**:
+     `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/dashboard`
+   - **Reset password**:
+     `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/update-password`
+
+   With the default templates, the links still work, but only in the browser where the user signed up or asked for the reset.
+3. **Sign In / Providers → Email**: keep **Confirm email** on.
+4. **Emails (SMTP)**: Supabase's built-in email sender is only for testing and has a very low hourly limit. Set up your own SMTP before real users sign up.
+5. **JWT signing keys** (Project Settings → JWT Keys): new projects use asymmetric keys. Then the app verifies sessions locally, without a call to Supabase Auth on every page view. Older projects can switch from that page.
+
+### 5. Promote the first admin
+
+Sign up in the app, then run this in the SQL editor:
 
 ```sql
 update public.profiles
@@ -59,7 +77,7 @@ where id = (select id from auth.users where email = 'you@example.com');
 
 This works only from the SQL editor or with the secret key. Users can't change their own role: a column grant and a trigger both block it.
 
-### 5. Run
+### 6. Run
 
 ```bash
 npm run dev
