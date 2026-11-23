@@ -2,20 +2,21 @@
 
 Play or make a sound into your microphone, and SoundMatch analyses it live in your browser. It identifies musical notes, compares sounds against a reference library, and shows clear, honest results. **Your audio never leaves your device.**
 
-> Status: built in phases. **Phases 2–6 are complete**:
-> - foundation: configuration, design tokens, database schema, Row Level Security, storage;
-> - accounts;
-> - the audio engine;
-> - the **live Listen screen** (`/listen`, note identification, works without an account);
-> - the **reference library** (`/library`) and **admin tools** (`/admin/references`, `/admin/import`);
-> - **live compare and closest match** on the Listen screen, and **history** (`/history`);
-> - the landing page, full **settings** (A4, sensitivity, history saving, default microphone, delete account) and an accessibility pass.
->
-> Phase 9 (verification against a real Supabase project, final README) is next. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
+What it does:
+
+- **Identify note** (`/listen`): a live tuner showing the note name, cents off and a confidence level. It works without an account.
+- **Compare** (`/listen?mode=compare`): play along with a reference sound and get a heuristic similarity score with a breakdown.
+- **Closest match** (`/listen?mode=closest`): play a note and see the five closest samples of an instrument.
+- **Reference library** (`/library`): browse, search, filter and preview reference sounds.
+- **History** (`/history`): saved result summaries (numbers and labels, never audio), searchable and deletable.
+- **Settings**: A4 reference pitch, sensitivity, whether to save history, default microphone, and account deletion.
+- **Admin** (`/admin`): add, edit and delete references, and bulk-import a whole instrument (for example 88 piano notes).
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design, and "Known limitations" below for what it can't do yet.
 
 ## Requirements
 
-- Node.js 20.9 or newer (developed on Node 22)
+- Node.js 20.9 or newer (developed on Node 22; `features:recompute` and `verify:rls` need Node 22 for `--env-file-if-exists`)
 - A Supabase project (the free tier is fine)
 - Optional, for database tests: a local PostgreSQL 15+ server
 
@@ -94,6 +95,18 @@ npm run dev
 
 Then open <http://localhost:3000>. Microphone access needs HTTPS; `localhost` is allowed for development.
 
+### 7. Check the security rules (recommended)
+
+```bash
+npm run verify:rls -- --yes
+```
+
+This proves, against your real project and through the same API the browser uses, that one user can't read or change another user's data and that nobody can make themselves admin (see "Security check" below). Use a development or staging project.
+
+### 8. Deploy
+
+Any Node host works; on Vercel, import the repository and add the four environment variables from step 2 (with `NEXT_PUBLIC_SITE_URL` set to the deployed URL). Then add `https://<your-domain>/auth/confirm` to Supabase's Redirect URLs (step 4). The build runs `build:worklets` automatically.
+
 ## Scripts
 
 | Command | What it does |
@@ -102,9 +115,10 @@ Then open <http://localhost:3000>. Microphone access needs HTTPS; `localhost` is
 | `npm run build` / `npm start` | Production build / serve |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, including the compile-time database type checks |
-| `npm test` | Unit tests. Database tests are skipped unless `TEST_DATABASE_URL` is set. |
+| `npm test` | Unit tests (engine, validation, services). Database tests are skipped unless `TEST_DATABASE_URL` is set. |
 | `npm run db:test:reset` | Rebuilds the local test database from the migrations |
-| `npm run test:e2e` | Playwright smoke tests in Chromium with a fake microphone (builds and starts the app) |
+| `npm run test:e2e` | Browser tests in Chromium with a fake microphone: every flow, accessibility (axe) and layout from 360 px to desktop. Builds and starts the app against a local stand-in for Supabase; no project needed. |
+| `npm run verify:rls -- --yes` | Security check against a **real** Supabase project (creates and then deletes two test users; needs all three keys in `.env.local`) |
 | `npm run build:worklets` | Compiles the AudioWorklet to `public/worklets/` (runs automatically before `dev` and `build`) |
 | `npm run features:recompute` | Recomputes reference features after an engine version change (needs `SUPABASE_SECRET_KEY`; Node 22+; add `-- --dry` to only list) |
 | `npm run engine:evaluate` | Prints the engine's score distributions on labelled sound pairs (add `-- --verbose` for every pair) |
@@ -118,6 +132,21 @@ TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/soundmatch_test np
 ```
 
 The test runner **drops and recreates** that database, so it refuses any host other than localhost and any database name that doesn't contain `test`.
+
+## Security check
+
+There are two layers of proof that the database rules hold.
+
+1. **`npm test` with `TEST_DATABASE_URL`** applies the migrations to a local Postgres and checks every grant, policy, constraint and trigger in SQL. It is fast and needs no Supabase project, but it uses a small stand-in for Supabase's `auth` and `storage` schemas.
+2. **`npm run verify:rls -- --yes`** runs against a real Supabase project, through PostgREST, Auth and Storage, exactly as the browser would. It creates two temporary users (A and B) and two temporary, clearly labelled test files, then checks that:
+   - A can't read, change or delete B's profile or history;
+   - A can't make themselves admin (by editing their profile or their user metadata);
+   - users can't write history directly (only the server can), can't edit scores, and can't create, edit or delete references, categories, instruments, samples or features;
+   - B's private reference and its file are invisible to A, the bucket refuses user uploads and deletes, and signed-out visitors can't download files;
+   - the rate-limit table can't be read directly;
+   - signed-out visitors can read only categories and instruments.
+
+   Positive controls (A *can* edit their own name, delete their own history, read public references) make sure the checks aren't passing just because everything is blocked. Everything it created is deleted at the end, even when a check fails. It prints one PASS/FAIL line per check and exits with code 1 if any fail.
 
 ## Importing a sample set (admins)
 
@@ -149,7 +178,36 @@ Single sounds (a bark, a door) are added one at a time under **Admin → Add ref
 
 ## Manual testing
 
-Real microphones and mobile browsers must be checked by hand: see [`docs/MANUAL-TEST-CHECKLIST.md`](docs/MANUAL-TEST-CHECKLIST.md).
+Real microphones, Firefox, Safari and phones must be checked by hand. See [`docs/MANUAL-TEST-CHECKLIST.md`](docs/MANUAL-TEST-CHECKLIST.md). It covers Chrome, Firefox and Safari on desktop and iOS, checking that the microphone indicator turns off after Stop and that no audio appears in network requests, and responsive layout.
+
+## Known limitations
+
+**Scores are heuristics, not measurements.** The similarity score says how alike two sounds are by this app's rules (pitch in cents; timbre from MFCCs, envelope, brightness and duration). It is not a judgement of musical quality. The scoring curves were tuned on synthetic test sounds; run `npm run engine:evaluate` with your own recordings in `fixtures/real/` to check them on real microphones and rooms.
+
+**Pitch**
+- One note at a time. Chords, several instruments at once, or loud background music confuse note detection.
+- The tracker works from about 25 Hz to 4.5 kHz (all 88 piano keys). The lowest notes (below about A1) take longer and are less confident, because they need longer windows and their fundamental is weak on small speakers and phone mics.
+- Pianos and singers are rarely exactly in tune, so a few cents off is normal. Set A4 in Settings if your instrument is tuned to something other than 440 Hz.
+
+**Timbre (non-note sounds and velocity layers)**
+- Timbre ignores loudness on purpose (so a quiet and a loud clap still match), so velocity layers of the same note are told apart only by brightness and attack.
+- Room echo, distance from the mic, and the mic itself all change timbre. Phone mics and Bluetooth headsets in call mode lower scores; the app warns about the last.
+
+**Listening**
+- A single sound is analysed for at most 5 seconds; longer sounds are cut (with a warning). Sounds shorter than 80 ms are reported as too short.
+- Listening stops when you switch tabs or apps, by design, so the microphone is never on in the background. Press Start again when you come back.
+- Needs a browser with AudioWorklet (current Chrome, Edge, Firefox and Safari, and iOS 14.5+) and HTTPS.
+
+**Trust model**
+- Results are computed in the browser, so a determined user could save made-up scores to **their own** history. That is acceptable because history is private and never compared between users; the database records this as `computed_on = 'client'`.
+
+**Library and import**
+- Stored references are mono 16-bit WAV, at most 30 s and 5 MB. The importer converts in the browser; which input formats it can read depends on the browser (AIFF only in Safari).
+- Closest match loads one instrument's samples in a single request, so it is limited by Supabase's API row limit (1,000 by default). That is plenty for 88 notes with several velocity layers.
+- Changing the analysis engine needs `npm run features:recompute` (or the button in Admin) so stored features match the new version. Until then, Compare says such a reference "hasn't been analysed with the current engine yet", and Closest match leaves those samples out.
+
+**Accounts**
+- Supabase's built-in email sender has a very low hourly limit; set up SMTP before real users sign up.
 
 ## Privacy
 

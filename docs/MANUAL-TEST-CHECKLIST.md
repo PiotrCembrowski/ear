@@ -1,6 +1,6 @@
 # Manual test checklist: live listening
 
-Automated tests cover the engine (Vitest) and the main Listen flow in Chromium with a fake microphone (`npm run test:e2e`). Real microphones, permission prompts and mobile browsers can only be checked by hand.
+Automated tests cover the engine and the database rules (`npm test`), and every page in Chromium with a fake microphone, including accessibility and layout at phone, tablet and desktop widths (`npm run test:e2e`). Real microphones, permission prompts, other browsers and real phones can only be checked by hand.
 
 Run this checklist before a release on each target:
 
@@ -12,11 +12,23 @@ Run this checklist before a release on each target:
 
 Use the deployed **https** site, or `npm run dev` on `localhost` for desktop. Mobile browsers need https, for example a Vercel preview deployment.
 
+**Where each browser shows that the microphone is on:**
+
+| Browser | Indicator |
+|---|---|
+| Chrome / Edge desktop | Red dot on the tab, and a mic icon at the right of the address bar |
+| Firefox desktop | Red mic icon in the address bar (and the sharing indicator window or menu-bar icon) |
+| Safari macOS | Mic icon in the address bar, and the orange dot in the macOS menu bar |
+| iOS / iPadOS | Orange dot in the status bar (Control Centre names the site) |
+| Android Chrome | Green mic icon in the status bar, and the "Microphone in use" notice |
+
+Before you start, run the security check against the staging project (see README, "Security check"): `npm run verify:rls -- --yes` must report 0 failed.
+
 ## 1. First start and permission
 - [ ] Open **/listen** signed out. It shows "Microphone off", the privacy note and **Start listening**.
 - [ ] Press **Start listening**. The browser asks for the microphone. Allow it.
 - [ ] The badge shows "Listening · measuring background…", then "Listening", with a red pulsing dot. The panel border turns red.
-- [ ] The browser's microphone indicator appears (tab icon, address bar, or the iOS status-bar dot).
+- [ ] The browser's microphone indicator appears (see the table above).
 - [ ] **Input device** now lists real device names.
 
 ## 2. Note identification (the acceptance test)
@@ -31,12 +43,14 @@ Use the deployed **https** site, or `npm run dev` on `localhost` for desktop. Mo
 - [ ] Move **Sensitivity** towards "Less sensitive". Quiet sounds stop triggering "Sound detected". The yellow threshold marker on the level meter moves right.
 - [ ] Choose a different **Input device** while listening. Listening restarts on that device ("Using …" updates).
 - [ ] Reload the page. The chosen device is remembered.
-- [ ] Signed in with A4 = 442 Hz (Settings, from Phase 8): a 440 Hz tone reads about −8 cents.
+- [ ] Signed in with A4 = 442 Hz (in Settings): a 440 Hz tone reads about −8 cents.
 
 ## 4. Stopping and privacy
-- [ ] Press **Stop listening**. The badge shows "Microphone off", **and the browser's microphone indicator disappears** within a second or two.
+- [ ] Press **Stop listening**. The badge shows "Microphone off", **and the browser's microphone indicator disappears** within a second or two. Repeat while a sound is still ringing ("Sound detected"): the indicator still turns off.
 - [ ] Open DevTools → **Network** and start listening for 30 s. No requests are sent while listening. Static files (the worker and worklet scripts) may load once at start; nothing is uploaded.
+- [ ] Signed in, in Compare mode, play a note until "Saved to your history". In **Network**, the only new request is `POST /api/comparisons`. Its payload is a few kilobytes of JSON (scores, note names, a short pitch curve), with no audio and no `user_id`. Filter by **Media** or **Fetch/XHR**: nothing else was sent.
 - [ ] Leave the page (click another link) while listening. The mic indicator turns off.
+- [ ] Close the tab while listening. The indicator turns off.
 
 ## 5. Interruptions and errors
 - [ ] **Switch tabs** (or apps on mobile) while listening. You come back to "Listening paused… the microphone was turned off", and the indicator is off. **Start listening again** works.
@@ -61,6 +75,19 @@ Use the deployed **https** site, or `npm run dev` on `localhost` for desktop. Mo
 - [ ] Keyboard only: Tab reaches Start/Stop, the device picker, the sensitivity slider and the view toggle. Focus rings are visible, and Enter/Space work.
 - [ ] Screen reader (VoiceOver or NVDA): the level meter is announced as a meter with a text value, and detected notes are announced ("Detected A4, plus 5 cents") at most every 1.5 s.
 - [ ] Turn on "Reduce motion" in the OS. The pulsing dot and the needle/meter animations stop.
-- [ ] Phone width (390 px): no horizontal scrolling, and all controls are reachable.
+- [ ] Browser zoom at 200% on desktop: text stays readable, nothing overlaps, and no horizontal scrolling (apart from the admin import preview table, which scrolls inside its own box).
+
+## 8. Responsive layout
+- [ ] Phone (about 360–430 px wide), portrait: no horizontal scrolling on any page; the menu button opens the navigation; **Start listening** is fully visible without scrolling on /listen.
+- [ ] Rotate the phone to landscape while listening. The layout adjusts and listening keeps going.
+- [ ] Tablet (iPad) portrait and landscape: the menu button is used below 1024 px and the sidebar from 1024 px; result charts fit their card.
+- [ ] Large desktop (1920 px or wider): content stays at a comfortable width, nothing stretches across the whole screen.
+- [ ] iOS: the on-screen keyboard on the sign-in and search fields does not hide the field you are typing in.
+
+## 9. Admin (admin account, staging project)
+- [ ] **Admin → Bulk import samples**: choose real WAV notes (for example 88 piano notes) and enter the license and source. The preview names each note from its filename and flags files it cannot use; the coverage box says "Complete set · 88 of 88 piano notes…"; the import shows progress.
+- [ ] **Library**: the imported notes appear, and their preview plays (a signed link that expires).
+- [ ] **Closest match** with that instrument ranks the note you play first.
+- [ ] A normal (non-admin) account cannot open /admin pages (it is sent to the dashboard).
 
 Record the browser versions and any failures in the release notes.

@@ -234,7 +234,8 @@ Scores are computed in the user's browser, so they are trusted only for that use
 - **Engine:** synthetic signals in Vitest (allowed in tests only).
 - **Database:**
   - `tests/db/` rebuilds a local Postgres from the migrations, using a small stand-in for Supabase's `auth` and `storage` schemas (`scripts/db/supabase-shim.sql`), and checks grants, RLS, constraints and triggers.
-  - Phase 9 adds a script that runs the same checks against a real Supabase project.
+  - `scripts/verify-rls.ts` (`npm run verify:rls -- --yes`) checks the same rules against a real Supabase project, through PostgREST, Auth and Storage, with two temporary users. It requires SQLSTATE 42501 (permission denied) for refused writes, so a constraint error can't pass as a security check, and it includes positive controls.
 - **Design tokens:** WCAG AA contrast is checked in `tests/ui/design-tokens.test.ts`.
 - **Signed-in browser flows** (library, admin import): Playwright runs against a test-only fake Supabase (`tests/e2e/support/fake-supabase.ts`) that answers the Auth, PostgREST and Storage calls those pages make. It doesn't enforce RLS; the database tests do that.
-- **Live audio:** a Playwright smoke test uses Chromium's fake microphone, plus a manual checklist for Chrome, Firefox and Safari (desktop and iOS).
+- **Live audio:** Playwright tests use Chromium's fake microphone for every mode, plus a manual checklist for Chrome, Firefox and Safari (desktop and iOS) in `docs/MANUAL-TEST-CHECKLIST.md`.
+- **Accessibility and layout:** axe-core on every page; no horizontal scrolling at 360 px (every page), 768 px, 780×360 landscape and 1280 px; the navigation switch at 1024 px; result charts fitting at 360 and 768 px (`tests/e2e/accessibility.spec.ts`, `tests/e2e/responsive.spec.ts`).
